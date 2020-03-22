@@ -17,7 +17,7 @@ The rotary encoder has three external pins: `pinA`, `pinB`, and `GND`. Internall
 
 When you turn the knob, there's a *bump* that provides some resistance, but also aligns the disk so that both "switches" are open or closed (i.e. at the same state). In the transition between two "resting spots", one of the pins will change state before the other pin, depending on if the knob was turned clockwise or counterclockwise. Reading the pin states allows us to detect rotation.
 
-** A lot of tutorials describe the two pins as emitting pulses, and are "quadrature" signals (90 degrees out of phase), but it's not the case here. It's just two signals making a `LOW` to `HIGH` (or vice versa) transition, and the delay between edges depends on how slowly you turn the knob. You could also "cancel" it by not fully turning the knob through the bump.
+** A lot of tutorials describe the two pins as square wave signals, or emitting pulses, and being "quadrature" signals (90 degrees out of phase), but it's not necessarily the case here. (Maybe if it was rotating at a constant speed...) It's just two signals making a `LOW` to `HIGH` (or vice versa) transition, and one signal is delayed. The delay between edges depends on how slowly you turn the knob. You could also "cancel" it by not fully turning the knob through the bump.
 
 ### Breadboard
 ![](breadboard.jpg)
