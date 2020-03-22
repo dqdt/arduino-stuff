@@ -21,3 +21,8 @@ When you turn the knob, there's a *bump* that provides some resistance, but also
 
 ### Breadboard
 ![](breadboard.jpg)
+
+The program has a counter (int) storing the number of steps turned.
+
+Two LEDs show the state of the two pins of the rotary encoder.
+Four LEDs show the lowest four bits of the counter value.
