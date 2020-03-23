@@ -14,11 +14,11 @@ However, I think the rotary encoder in my mouse's scroll wheel uses the same mec
 The rotary encoder has three external pins: `pinA`, `pinB`, and `GND`. Internally, there is a circular track with metal pads; some pads connect to `pinA`, some to `pinB`, or `GND`. There's also a disk with metal leaves/legs and these legs may touch certain pads as the disk rotates. The disk acts as a "switch" that can pull `pinA` and/or `pinB` to `GND` when "closed". When the "switch" is open, the pin is at `V+`. 
 
 * Both pins have a `10K` pullup resistor so it doesn't short-circuit when pulled down.
-** when both pins are pulled to `GND`, the resistors are in parallel (`5K`)
+  * when both pins are pulled to `GND`, the resistors are in parallel (`5K`)
 
 When you turn the knob, there's a *bump* that provides some resistance, but this bump also aligns the disk so that both "switches" are both open or closed (i.e. the same state). In the transition between two "resting spots", one of the pins will change state before the other pin, depending on if the knob was turned clockwise or counterclockwise. Reading the pin states allows us to detect rotation.
 
-** A lot of tutorials describe the rotary encoder as outputting two square wave signals (or pulses) and being "quadrature" signals (90 degrees out of phase), but I think it's confusing to think about it that way. (It makes sense if it was rotating at a constant speed...) It's just two signals making a `LOW` to `HIGH` (or vice versa) transition, but one signal is delayed. The delay between edges depends on how slowly you turn the knob. You could also "cancel" it by not fully turning the knob through the bump.
+* A lot of tutorials describe the rotary encoder as outputting two square wave signals (or pulses) and being "quadrature" signals (90 degrees out of phase), but I think it's confusing to think about it that way. (It makes sense if it was rotating at a constant speed...) It's just two signals making a `LOW` to `HIGH` (or vice versa) transition, but one signal is delayed. The delay between edges depends on how slowly you turn the knob. You could also "cancel" it by not fully turning the knob through the bump.
 
 ### Breadboard
 ![](breadboard.jpg)
@@ -69,10 +69,28 @@ BB -> BA
    -> AB
 ```
 
-I just want to know that it changed from `AA` to `BB`, and whether it was clockwise or counterclockwise.
+### Debouncing
+Using mechanical keyboard switches as an example (these are the ones I've used):
+* Linear switches (MX red) can have "key chattering" (caused by debouncing problems?)
+  * You can't feel where the actuation point is, so it's easy to slide between `ON` and `OFF`
+* Heavy tactile switches (MX clear) usually don't have debouncing problems.
+  * The actuation point is below the bump. Once your finger moves past the bump, it has enough momentum to move even further down and past the actuation point. So it's less likely to slide between `ON` and `OFF`.
 
+For this rotary encoder:
+  * When the knob is rotated past the bump and pulled into the next slot, the knob's rotation will oscillate a little bit before settling down (like an underdamped system), or that's how I imagine it. This is where it quickly moves between `ON/OFF`.
+  * When the knob begins turning away from a resting position, it's just your fingers gripping the knob and there's nothing that causes oscillations. On the other hand, when knob when is pulled into the next slot, your fingers' grip is not enough to dampen the motion.
+  
+There are eight edge events we can detect. Suppose we could sample infinitely fast (and detect all edge events)...
+* increment counter: `00` -> `10` -> `11` -> `01` -> `00`
+* decrement counter: `00` <- `10` <- `11` <- `01` <- `00`
+
+With noise, it'd be a problem if interrupts were triggered on edge events because the motion didn't settle down yet. But we have __infinite speed__, so we wouldn't miss any events, right...?
+* I think it's more robust if one pin remains constant at the rotation where the other pin could oscillate (depends on pad width).
+
+
+stuff
 * poll the pin states?
 * pin change interrupt?
 
 * check first edge? (i.e. departing from a resting state `AA` -> `AB`)
-* check second edge? (i.e. arriving at a resting state `AB` -> `AA`) (I think this makes more sense)
+* check second edge? (i.e. arriving at a resting state `AB` -> `AA`) (oscillations!!)
