@@ -54,6 +54,9 @@ Some people concatenate the previous and current states into a 4-bit integer, an
 * [How to use a quadrature encoder (pdf)](How%20to%20use%20a%20quadrature%20encoder.pdf)
 * https://makeatronics.blogspot.com/2013/02/efficiently-reading-quadrature-with.html
 
+Or even concatenating two past states: `a[i-2]`, `a[i-1]`, and `a[i]`. This seems to do the same thing as "digital debouncing", which counts while the signal is stable before proceeding.
+* https://www.best-microcontroller-projects.com/rotary-encoder.html 
+
 The knob resting positions force both pins to be the same state. We can't have `AB` or `BA` as "resting states", only `AA` or `BB`. (But in other rotary encoders, I assume the disk could rotate freely.) It's also mentioned that we could detect many types of edge events (for higher-speed applications):
 ```
 AA -> AB
