@@ -5,3 +5,5 @@ There is already an arduino and teensy keyboard library, but I want to learn and
 Datasheet for the Teensy-LC microcontroller MKL26Z64VFT4
 * https://www.pjrc.com/teensy/datasheets.html
 
+Teensy-LC schematic to see the wiring of the pins
+* https://www.pjrc.com/teensy/schematic.html
