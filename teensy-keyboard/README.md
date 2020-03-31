@@ -1,6 +1,7 @@
-There is already an arduino keyboard library, but I want to go deeper and learn how it works...
+There is already an arduino and teensy keyboard library, but I want to learn and build my own...
 * https://www.arduino.cc/reference/en/language/functions/usb/keyboard/
 * https://www.pjrc.com/teensy/td_keyboard.html
 
-
+Datasheet for the Teensy-LC microcontroller MKL26Z64VFT4
 * https://www.pjrc.com/teensy/datasheets.html
+
