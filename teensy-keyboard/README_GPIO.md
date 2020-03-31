@@ -1,7 +1,4 @@
-Teensy-LC schematic to see the wiring of the pins
-* https://www.pjrc.com/teensy/schematic.html
-
-Not all port pins are used.
+A port register has 32 bits, so you would think it supports 32 pins. However, not all bits are used, and adjacent pins on the Teensy-LC are not adjacent bits of the same port. It's kind of random (?)
 * https://www.nxp.com/part/MKL26Z64VFT4#/
 * (page 53) https://www.nxp.com/docs/en/data-sheet/KL26P64M48SF5.pdf
 
@@ -57,7 +54,7 @@ The memory mapped register defines are in `kinetis.h`.
 To use GPIO, we first need to initialize the Port Control and Interrupt module for that port.
 * Datasheet (page 176) shows the signals that can be connected to each external pin.
   * The Port Control module selects which signal is connected to the external pin.
-    * (GPIO, UART, SPI, Timer/PWM, etc)
+    * (can be GPIO, UART, SPI, Timer/PWM, etc)
 * `PORTx_PCRn` Pin Control Register n
   * Each pin has its own 32-bit register for configuration.
   * 3-bit MUX field selects what is connected to the external pin. `001` selects GPIO.
