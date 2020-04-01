@@ -64,7 +64,7 @@ To use GPIO, we first need to initialize the Port Control and Interrupt module f
   * For each `GPCxR` Register, bits `[31:16]` = enable (write data to this pin), and bits `[15:0]` is the data to write.
     * Assuming we only write to the lower 16 bits of `PCRn` (don't need to write to the upper 16 bits).
 * Example: Pin 2 is Port D, pin 0.
-  * ```
-    PORTD_GPCLR = (1 << 16) | PORT_PCR_MUX(1); // MUX selects GPIO for the 0-th pin
-    GPIOD_PDDR |= 1;                           // pinMode OUTPUT
-    ```
+  ```c
+  PORTD_GPCLR = (1 << 16) | PORT_PCR_MUX(1); // MUX selects GPIO for the 0-th pin
+  GPIOD_PDDR |= 1;                           // pinMode OUTPUT
+  ```
