@@ -19,8 +19,10 @@ Exception handling:
 * To be jitter-free, it should take a fixed number of cycles to begin the interrupt.
   * interrupt late-arrival
     * while inside an interrupt, another interrupt with higher priority occurs
+    * OR a high-priority interrupt occurs while stacking for a lower-priority interrupt, do tail-chaining?
   * interrupt tail-chaining
     * process interrupts back-to-back, no need to save state to the stack
+* https://community.arm.com/developer/ip-products/processors/b/processors-ip-blog/posts/beginner-guide-on-interrupt-latency-and-interrupt-latency-of-the-arm-cortex-m-processors
 
 NVIC:
 * interrupt signals (from modules) connect to the NVIC, and the NVIC prioritizes the interrupts
@@ -79,3 +81,11 @@ Ok, the PORT module allows triggering interrupts but you have to manually clear 
 
 Arduino has `attachInterrupt` 
 
+Rotary encoder code inside an interrupt:
+* Doesn't work because of noise? This was my problem:
+  * configure pin change interrupt on rising edge
+  * first thing when entering the interrupt is to read the pin's value from the gpio register
+  * rising edge should mean the current value is `1`. But I read `0`s too.
+  * commonly it gets the same readings multiple times in a row...
+    * if the readings are the same, why did the interrupt trigger?
+  * does it take too long to enter the interrupt?
