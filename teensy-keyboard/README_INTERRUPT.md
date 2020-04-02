@@ -89,3 +89,6 @@ Rotary encoder code inside an interrupt:
   * commonly it gets the same readings multiple times in a row...
     * if the readings are the same, why did the interrupt trigger?
   * does it take too long to enter the interrupt?
+* However, renaming the isr to `my_portcd_isr()` and using `attachInterrupt(pin, my_portcd_isr, CHANGE)` works perfectly. WTF?
+* Clear the ISF (interrupt status flag) upon entering the ISR.
+  * For some reason, this helps (if edge changed again while inside the ISR)...
