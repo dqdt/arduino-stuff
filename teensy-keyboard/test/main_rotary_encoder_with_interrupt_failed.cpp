@@ -105,6 +105,10 @@ volatile int val = 0;
 // int clkPrev = 0;
 // void portcd_isr(void)
 // {
+//     // Moving this up here doesn't seem to fix it
+//     PORTC_PCR0 |= (1 << 24); // Clear the Interrupt Status Flag (ISF) bit
+//     PORTD_PCR1 |= (1 << 24);
+
 //     int clk = pins.read(clkPin);
 //     int dt = pins.read(dtPin);
 //     if (clk != clkPrev)
@@ -119,13 +123,14 @@ volatile int val = 0;
 //         }
 //         clk = clkPrev;
 //     }
-//     PORTC_PCR0 |= (1 << 24); // Clear the Interrupt Status Flag (ISF) bit
-//     PORTD_PCR1 |= (1 << 24);
 // }
 
-// misses some turns
 void portcd_isr(void)
 {
+    // Clearing this flag at the start of the ISR seems to fix things
+    PORTC_PCR0 |= (1 << 24); // Clear the Interrupt Status Flag (ISF) bit
+    PORTD_PCR1 |= (1 << 24);
+
     int clk = pins.read(clkPin);
     int dt = pins.read(dtPin);
 
@@ -161,10 +166,36 @@ void portcd_isr(void)
         // }
         // Serial.println();
     }
-
-    PORTC_PCR0 |= (1 << 24); // Clear the Interrupt Status Flag (ISF) bit
-    PORTD_PCR1 |= (1 << 24);
 }
+
+// void my_portcd_isr(void)
+// {
+//     int clk = pins.read(clkPin);
+//     int dt = pins.read(dtPin);
+
+//     int a = (clk << 1) | dt;
+//     int b = state & 0x3;
+//     if (a != b)
+//     {
+//         // state = ((state << 2) | a) & 0x3F;
+//         state = (state << 2) | a;
+//         switch (state & 0x3F)
+//         {
+//         case 0b001011:
+//             val++;
+//             break;
+//         case 0b110100:
+//             val++;
+//             break;
+//         case 0b000111:
+//             val--;
+//             break;
+//         case 0b111000:
+//             val--;
+//             break;
+//         }
+//     }
+// }
 
 int main()
 {
@@ -188,6 +219,10 @@ int main()
 
     PORTD_PCR1 &= ~(0b1111 << 16);
     PORTD_PCR1 |= (0b1011 << 16); // either edge
+
+    // Using attachInterrupt works better. WTF?
+    // attachInterrupt(14, my_portcd_isr, CHANGE);
+    // attachInterrupt(15, my_portcd_isr, CHANGE);
 
     // Loops can get optimized away (?)
     // * https://wiki.sei.cmu.edu/confluence/display/c/MSC06-C.+Beware+of+compiler+optimizations
