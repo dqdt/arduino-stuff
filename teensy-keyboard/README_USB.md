@@ -30,12 +30,30 @@ Bootloader:
     * The bootloader code takes up memory.
     * The initial state of registers might be altered.
 
+Writing my own USB drivers?
+* Does it mean I have to write a bootloader too? (feels like I shouldn't have to...)
+  * https://stackoverflow.com/questions/38386255/writing-my-own-arduino-driver
+    * http://www.davidegrayson.com/signing/
+* What's the smaller chip on the Teensy for?
+  * https://forum.pjrc.com/threads/35399-Basic-question-about-creating-custom-Teensy?p=109751#post109751
+    * It contains the bootloader code. The main chip is flashed with the bootloader, and then the main chip can receive your program through USB. Then it restarts and runs your program.
 
+Onwards!
+* http://kevincuzner.com/2014/12/12/teensy-3-1-bare-metal-writing-a-usb-driver/
 
+# Actually, I can't follow along because Teensy already uses the usb_isr() interrupt and I can't re-define it
+* unless I want to rip it out and replace it everywhere...?
+* I'll just take the easier road then... (using/modifying teensy code)
+
+* Maybe someday I'll start from a lower level, so I can feel like I'm making progress with each step
+  * Currently it's just not approachable. I'm using libraries but don't understand what the underlying code does (and it's hard to find an explanation, because that probably requires explaining even more things)
+
+# Notes on USB stuff
 
 ### USB in a Nutshell
 * https://beyondlogic.org/usbnutshell/usb1.shtml
-  
+* http://www.usbmadesimple.co.uk/index.html
+
 ### Datasheet `Chapter 35: USB OTG Controller`
 
 * Low Speed = 1.5 Mbit/s, Full speed = 12 Mbit/s, (and High speed = 480 Mbit/s)
@@ -48,7 +66,7 @@ Bootloader:
 * Buffer Descriptor (BD) and Buffer Descriptor Table (BDT)
   * 16 bi-directional endpoints (?)
     * Each endpoint direction requires two 8-byte buffer descriptors
-  * Two buffer descriptors (because it is double buffered)
+  * Two buffer descriptors (ping-pong)
     * A BD contains a pointer to the buffer in memory, and other info.
     * The processor accesses one BD while the USB-FS works on the other.
     * 1-bit `OWN` semaphore indicates who owns the BD.
