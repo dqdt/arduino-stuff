@@ -45,14 +45,9 @@ Onwards!
 * unless I want to rip it out and replace it everywhere...?
 * I'll just take the easier road then... (using/modifying teensy code)
 
-* Maybe someday I'll start from a lower level, so I can feel like I'm making progress with each step
-  * Currently it's just not approachable. I'm using libraries but don't understand what the underlying code does (and it's hard to find an explanation, because that probably requires explaining even more things)
+* Maybe someday I'll start from something more basic, so I can feel like I'm making progress with each step
 
 # Notes on USB stuff
-
-### USB in a Nutshell
-* https://beyondlogic.org/usbnutshell/usb1.shtml
-* http://www.usbmadesimple.co.uk/index.html
 
 ### Datasheet `Chapter 35: USB OTG Controller`
 
@@ -78,28 +73,100 @@ Onwards!
   * Host: vice versa
 
 * Section `35.3.5 USB transaction`
-
-Teensy has:
-* `usb_keyboard.h`
-* `usb_desc.h`
-* https://forum.pjrc.com/threads/49045?p=164512&viewfull=1#post164512
-
-
-In `kinetis.h`:
-* There's an interrupt for USB-OTG `IRQ_USBOTG`
-* System Integration Module (SIM)
-  * Things that look interesting:
-    * USB regulator enable
-    * USB clock gate control
-* USB OTG Controller (USBOTG)
-  * `USB0_x` various registers
-  * masks for these registers are also defined
-  * IDK how the USB protocol works yet
-
-* Don't think Teensy-LC has these
-  * USB Device Charger Detection Module (USBDCD)
-  * USB High Speed OTG Controller (USBHS)
-  * USB 2.0 Integrated PHY (USB-PHY)
+  * still too vague
 
 Other links:
 * https://engineering.biu.ac.il/files/engineering/shared/PE_project_book_0.pdf
+
+# USB in a Nutshell
+* https://beyondlogic.org/usbnutshell/usb1.shtml
+
+# Starting over (but with the knowledge above)
+* https://forum.pjrc.com/threads/49045?p=164512&viewfull=1#post164512
+
+Teensy has:
+* `usb_keyboard.h` defines a usb_keyboard_class
+* `usb_desc.h` defines for usb descriptors
+
+USB spec has descriptors (Device, Configuration, Interface, Endpoint) and these form a tree structure?
+* One device. A device usually has only one configuration, but can have more. A configuration defines a number of interfaces. Each interface represents a functionality (a mouse or keyboard would have its own interface). An interface has multiple endpoints where data is transmitted and received (in buffers).
+* A single device can implement many interfaces, and thus act as different things.
+
+For HID class devices, the interface descriptor defines the class, subclass, and protocol.
+* * This triplet is also in the device descriptor, but they decided to move it into the interface descriptor for HID class devices.
+* Under the Interface descriptor is a HID descriptor
+  * Under the HID descriptor is a Report descriptor which describes the format of the data provided by the device.
+  
+HID ver. 1.11, Report descriptor for boot interface for a keyboard
+* The keyboard input report is 8 bytes:
+  * Modifier keys, reserved, Keycode 1-6
+    * We can only report 6 keys pressed at a time?
+* The keyboard output report is 1 byte:
+  * LED state for num, caps, scroll
+  * compose, kana (??)
+* GetReport, SetReport requests from the host to get or send data
+
+Report desriptor is confusing...
+* https://eleccelerator.com/tutorial-about-usb-hid-report-descriptors/
+  * USAGE_PAGE is like a namespace, changing it changes what USAGEs are available.
+    * USAGE_PAGE(Generic Desktop) -> Usage(Keyboard), Usage(Mouse), Usage(Game Pad)
+  * Each collection has its own report id/type.
+
+### Examining Teensy usb code
+* `usb_inst.cpp` declares global variables(classes) which are the APIs for usb device interfaces such as `usb_serial_class`, `usb_keyboard_class`
+* `usb_keyboard.h, c` implements `usb_keyboard_class`
+  * modifiers, keys[6], protocol, idle_config (report periodically even if idle), leds
+  * there's `write_unicode`... whaa?
+* I don't want to deal with the USB module, so maybe I can get away with just replacing `usb_desc` and `usb_keyboard`...
+
+Defines:
+* Somewhere, it defines `USB_SERIAL` and `LAYOUT_US_ENGLISH`. It is there in `c_cpp_properties.json`.
+  * How to undefine them?
+  * in `platform.ini` add a line `build_flags -U USB_SERIAL ...`
+  * in `main.cpp` do `#ifdef X`, `#undef X` 
+  * however these two conflict with each other! IDK what platformio does, but it screws up the `#undef`, so use only one of them
+
+Another explanation of USB HID:
+* https://wiki.osdev.org/USB_Human_Interface_Devices
+  * Device descriptor: class/sub-class are 0
+  * Interface descriptor: class = 3, sub-class = 1/0 (supports boot protocol or not), protocol = 1/2 (keyboard/mouse)
+* A device's protocol can be set by the host through "SetProtocol":
+  * Report protocol is more general
+  * Boot protocol is simpler, for mouse and keyboard
+* The host can send a "GetReport" request:
+  * It goes through the control endpoint as a SETUP packet.
+    * There is overhead, it is better to use an interrupt endpoint.
+  * Interrupt endpoint:
+    * The device's descriptors should have an "interrupt IN" endpoint, for interrupt transfers.
+    * The device should report at regular intervals.
+* "SetReport" request for sending the LED states (NUM, CAPS, SCROLL)
+
+Let's do the descriptors first:
+* Device descriptor:
+  * `usb_desc.c` and https://beyondlogic.org/usbnutshell/usb5.shtml
+  * For fields that are multiple bytes long, put the LSB first
+  ```c
+  static uint8_t device_descriptor[] = {
+    18,   // bLength (1)
+    0x01, // bDescriptorType (1)
+    0x10,0x01 // bcdUSB (2)
+    0,  // bDeviceClass (1)
+    0,   // bDeviceSubClass (1)
+    0,          // bDeviceProtocol (1)
+    64,         // bMaxPacketSize (1)
+    0x16, 0xC0  // idVendor (2)
+    0x04, 0xD0  // idProduct (2)
+    // bcdDevice (2)
+    // iManufacturer (1)
+    // iProduct (1)
+    // iSerialNumber (1)
+    // bNumConfigurations (1)
+  } 
+  ```
+
+When the host sends Get_Descriptor(Configuration), the device should return:
+* Configuration descriptor
+  * Interface descriptor (specifying HID Class)
+    * HID descriptor (for the above interface)
+      * Endpoint descriptor (for HID Interrupt IN Endpoint)
+      * Optional Endpoint descriptor (for HID Interrupt Out Endpoint)
