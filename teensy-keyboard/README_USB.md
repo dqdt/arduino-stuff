@@ -111,6 +111,60 @@ Report desriptor is confusing...
   * USAGE_PAGE is like a namespace, changing it changes what USAGEs are available.
     * USAGE_PAGE(Generic Desktop) -> Usage(Keyboard), Usage(Mouse), Usage(Game Pad)
   * Each collection has its own report id/type.
+* https://who-t.blogspot.com/2018/12/understanding-hid-report-descriptors.html
+  * Things like Usage Page and Report Size are "global items" and apply to all following items until changed.
+  * Input and Output tells to "process what you've seen so far" with a few flags:
+    * Rel, Abs: the values are relative, absolute
+    * Cnst: constant, don't need a Usage, it's ignored. Only used for padding?
+  * Usage Minimum (a) / Usage Maximum (b): there are b-a+1 items, rather than listing all the items in the range individually
+  * Logical Minimum / Maximum: allowable range
+    * Physical Minimum / Maximum: map logical [min,max] to physical [min,max]
+  * Report ID (i) 
+    * An Application Collection describes a set of inputs that makes sense as a whole
+    * A Report descriptor has at least one application collection
+    * Put the report id at the start a collection?
+
+##### WALL OF TEXT -- DONT READ
+HID Chapter 5
+* Report descriptors are composed of pieces of information called "items".
+  * All items have a 1-byte prefix containing the item tag, type, size.
+    * An item may contain optional data after the prefix.
+* Item parser:
+  * parses the report descriptor in a linear fashion. The parser collects the state of each known item as it walks through the descriptor, and stores them in an item state table. 
+    * it makes a tree:
+      * Application Collection -> Collection -> Report (ID?) -> {Main Item, Report Size, Report Count, Logical Min/Max } -> Usage
+  * Main item: a new report (node) is put in the item state table. "Local" items are removed, but "global" items remain?
+    * Global items set the default value for subsequent "main" items
+  * Push item: item state table is copied and pushed on a stack
+  * Pop item: restore item state table from stack
+* Usage: 
+  * 32 bit. Higher 16 bits are the Usage Page, lower 16 bits are the Usage ID.
+* Report ID is a 1-byte identification prefix to reach report transfer.
+  * If there are no Report ID tags, assume there is only one of each {Input,Output,Feature} report structures.
+    * Input is sent via Interrupt In pipe. Output and Feature must be initiated by the host via Control pipe (or Interrupt Out).
+  * If there are multiple report structures, use the ReportID to determine which structure applies.
+* Main items:
+  * Input: data from controls on the device
+  * Output: data to controls (variable data) or LEDs (array data)
+  * Feature: data not intended for the user (software feature or control panel toggle?)
+    * {input, output, feature} also specify data/const, variable/array, abs/rel 
+  * Collection tag: a grouping of Input, Output, Feature
+  * End Collection tag
+* Local items only describe fields for the next Main item. Global items persist.
+  * Usage, Usage Minimum/Maximum are local items.
+* Required items: Input/Output/Feature, Usage, UsagePage, Logical Min/Max, Report Size/Count
+
+* Short items contain 1 prefix byte and up to bytes of data.
+  * The prefix byte:
+    * bTag  [7:4] specifies the function of the item
+    * bType [3:2] 0,1,2,3: main, global, local, reserved
+    * bSize [1:0] 0,1,2,3: 0,1,2,4 bytes of data
+
+* Item prefixes in page 38.
+* The value reurned by an array item is an index, not a value!
+  * Recommended: Logical Minimum = 1. When invalid, let the index be 0 (out of range).
+* Get_Report(Input) via the control pipe, or periodically sent through Interrupt IN pipe
+* Set_Report(Output) via the control pipe, or optionally through Interrupt OUT pipe
 
 ### Examining Teensy usb code
 * `usb_inst.cpp` declares global variables(classes) which are the APIs for usb device interfaces such as `usb_serial_class`, `usb_keyboard_class`

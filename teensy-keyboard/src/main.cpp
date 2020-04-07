@@ -84,7 +84,46 @@ static uint8_t endpoint_descriptor_keyboard[] = {
     /**/ 0b10000001, // bEndpointAddress (1) Endpoint 1, IN
     0b11,            // bmAttributes (1)     Transfer Type: Interrupt Endpoint
     /**/ 8, 0,       // wMaxPacketSize (2)   Max packet size this endpoint can receive (8 bytes)
-    /**/ 1,          // bInterval (1)        Polling interval (in milliseconds)
+    /**/ 250 /*1*/,  // bInterval (1)        Polling interval (in milliseconds)
+};
+
+// Differs from HID 1.11, which had Logical Maximum(101) 0x65 for keys
+// Teensy usb_desc.c says Logical Maximum(104) yet has 0x7F (which is 127)
+//
+// Check with HID1.11 page 38
+static uint8_t report_descriptor_keyboard[] = {
+    0x05, 0x01, // Usage Page (Generic Desktop)
+    0x09, 0x06, // Usage (Keyboard)
+    0xA1, 0x01, // Collection (Application)
+    0x05, 0x07, //   Usage Page (Key Codes)
+    0x19, 0xE0, //   Usage Minimum (224)
+    0x29, 0xE7, //   Usage Maximum (231)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x25, 0x01, //   Logical Maximum (1)
+    0x75, 0x01, //   Report Size (1)
+    0x95, 0x08, //   Report Count (8)
+    0x81, 0x02, //   Input (Data, Variable, Absolute)   ; Modifier byte
+    0x75, 0x08, //   Report Size (8)
+    0x95, 0x01, //   Report Count (1)
+    0x81, 0x01, //   Input (Constant)                   ; Reserved byte
+    0x05, 0x08, //   Usage Page (Page# for LEDs)
+    0x19, 0x01, //   Usage Minimum (1)
+    0x29, 0x05, //   Usage Maximum (5)
+    0x75, 0x01, //   Report Size (1)
+    0x95, 0x05, //   Report Count (5)
+    0x91, 0x02, //   Output (Data, Variable, Absolute)  ; LED report
+    0x75, 0x03, //   Report Size (3)
+    0x95, 0x01, //   Report Count (1)
+    0x91, 0x01, //   Output (Constant)                  ; LED report padding
+    0x05, 0x07, //   Usage Page (Key Codes)
+    0x19, 0x00, //   Usage Minimum (0)
+    0x29, 0x7F, //   Usage Maximum (127)
+    0x15, 0x00, //   Logical Minimum (0)
+    0x25, 0x7F, //   Logical Maximum (127)D
+    0x75, 0x08, //   Report Size (8)
+    0x95, 0x06, //   Report Count (6)
+    0x81, 0x00, //   Input (Data, Array)                ; Key arrays (6 bytes)
+    0xC0,       // End Collection
 };
 
 typedef struct
@@ -95,7 +134,10 @@ typedef struct
     uint16_t length;
 } usb_descriptor_list_t;
 
+// An array of ENDPOINTx_CONFIG which is ENDPOINT_TRANSMIT_ONLY, etc. or ENDPOINT_UNUSED
 const uint8_t usb_endpoint_config_table[NUM_ENDPOINTS];
+
+// An array of {wValue, wIndex, addressof(descriptor_array), sizeof(descriptor_array)}
 const usb_descriptor_list_t usb_descriptor_list[];
 
 #include <Arduino.h>
