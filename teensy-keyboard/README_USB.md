@@ -201,22 +201,23 @@ Let's do the descriptors first:
   * For fields that are multiple bytes long, put the LSB first
   ```c
   static uint8_t device_descriptor[] = {
-    18,   // bLength (1)
-    0x01, // bDescriptorType (1)
-    0x10,0x01 // bcdUSB (2)
-    0,  // bDeviceClass (1)
-    0,   // bDeviceSubClass (1)
-    0,          // bDeviceProtocol (1)
-    64,         // bMaxPacketSize (1)
-    0x16, 0xC0  // idVendor (2)
-    0x04, 0xD0  // idProduct (2)
-    // bcdDevice (2)
-    // iManufacturer (1)
-    // iProduct (1)
-    // iSerialNumber (1)
-    // bNumConfigurations (1)
-  } 
+    18,                               // bLength (1)
+    0x01,                             // bDescriptorType (1)  Device Descriptor (0x01)
+    0x10, 0x01,                       // bcdUSB (2)           USB 1.1 or 01.10
+    0,                                // bDeviceClass (1)     If 0, each interface has its own class
+    0,                                // bDeviceSubClass (1)
+    0,                                // bDeviceProtocol (1)
+    ENDPOINT0_SIZE,                   // bMaxPacketSize (1)   Valid values: {8, 16, 32, 64}
+    LSB(VENDOR_ID), MSB(VENDOR_ID),   // idVendor (2)
+    LSB(PRODUCT_ID), MSB(PRODUCT_ID), // idProduct (2)        Using USB_SERIAL codes
+    0x73, 0x02,                       // bcdDevice (2)        Device Release Number. Copying Teensy. Arbitrary?
+    1,                                // iManufacturer (1)    Use index 0 if there are no string descriptors
+    2,                                // iProduct (1)
+    3,                                // iSerialNumber (1)
+    1,                                // bNumConfigurations (1)  One configuration
+  };
   ```
+  * and others... there's an example of keyboard descriptors in HID 1.11 Appendix E
 
 When the host sends Get_Descriptor(Configuration), the device should return:
 * Configuration descriptor
@@ -224,3 +225,64 @@ When the host sends Get_Descriptor(Configuration), the device should return:
     * HID descriptor (for the above interface)
       * Endpoint descriptor (for HID Interrupt IN Endpoint)
       * Optional Endpoint descriptor (for HID Interrupt Out Endpoint)
+
+
+Looking at `usbmem.c`:
+* I recall reading that `usb_packet_t` are pooled... seems like it is done here.
+  * pool is size `NUM_USB_BUFFERS`
+    * max size is 32. use a bitmask to determine which in the pool are free.
+    * CLZ to find the first free index
+  * `usb_packet_t * usb_malloc()`  get one from the pool
+  * `usb_free(usb_packet_t *p)`    release back into the pool
+    * OR immediately give it to something that is requesting it
+* packets have a uint8_t buffer of size 64, a buffer length, and index field (for iterating?)
+  * and a pointer `*next` to chains together multi-byte packets?
+
+Looking at `usb_dev.c`:
+* if `KEYBOARD_INTERFACE` is defined:
+  * keyboard_ {modifier_keys, keys[6], protocol, idle_config, idle_count, leds}
+* usb_ {init, isr, rx, tx_byte_count, tx_packet_count, tx, }
+* usb_configuration, rx_byte_count(endpoint),
+
+##### Wall of text incoming
+* buffer descriptor table
+  * bdt_t {uint32_t desc; void *addr;}
+  * bdt table[(NUM_ENDPOINTS+1)*4];   control endpoint is index 0, each endpoint has rx/tx/even/odd
+  * usb_packet_t *rx_first[NUM_ENDPOINTS], *rx_last, *tx_first, *tx_last ??
+  * tx_state[NUM_ENDPOINTS]
+    * TX_STATE_[EVEN|ODD]_FREE
+    * TX_STATE_BOTH_FREE_[EVEN|ODD]_FIRST
+    * TX_STATE_NONE_FREE_[EVEN_ODD]_FIRST
+  * BDT_{OWN, DATA1, DATA0, DTS, STALL, PID}
+    * BDT_DESC(count, data) forms upper 16 bits of the descriptor
+    * index(ep, tx, odd) (ep << 2 | tx << 1 | odd)    (forms an index into the bdt)
+    * stat2bufferdescriptor(s) (table + (s >> 2))
+* setup packet
+  * bmRequestType, bRequest, wValue, wIndex, wLength
+* endpoint0
+  * ep0_ {rx0_buf, rx1_buf, tx_ptr, tx_len, tx_bdt_bank (ODD bit), tx_data_toggle}
+  * usb_ {rx_memory_needed, configuration, reboot_timer}
+  * endpoint0_ 
+    * stall() { USB0_ENDPT0 |= EPSTALL | ... }  set flags in module
+      * enable endpoint rx,tx, stall bit causes any access to this endpoint to return a stall handshake
+    * transmit(*data, len) { set address in BDT and toggle OWN bit? so the USB module begins a transfer}
+
+Now for the functions...
+* `usb_setup()` handles a SETUP request from the control pipe
+
+* `usb_control()`
+
+* `usb_rx()`
+* `usb_queue_byte_count()`
+* `usb_tx_byte_count()`
+* `usb_tx_packet_count()`
+* `usb_rx_memory()`
+* `usb_tx()`
+* `usb_isr()`
+  * 
+
+* `usb_init()`
+  * `usb_init_serialnumber()` (check this later)
+  * clear bdt memory
+  * usb module initialization sequence
+    * clock gating, set bdt page registers, clear isr flags, enable usb module, enable usb reset interrupt, enable interrupt bits in NVIC, enable D+ pullup

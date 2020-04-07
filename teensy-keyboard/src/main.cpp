@@ -2,6 +2,8 @@
 #undef USB_SERIAL
 #endif
 
+#include <stdint.h>
+
 // USB descriptors
 #define LSB(n) ((n)&255)
 #define MSB(n) (((n) >> 8) & 255)
@@ -20,8 +22,7 @@
 #define KEYBOARD_SIZE 8
 #define KEYBOARD_INTERVAL 1
 
-#define CONFIGURATION_DESC_SIZE 0
-#define KEYBOARD_REPORT_DESC_SIZE 0
+#define CONFIGURATION_DESC_SIZE 9+9+9+7
 
 // Following `usb_desc.c`, and the example in: hid1_11.pdf, Appendix E
 static uint8_t device_descriptor[] = {
@@ -66,14 +67,13 @@ static uint8_t interface_descriptor_keyboard[] = {
 };
 
 static uint8_t hid_descriptor_keyboard[] = {
-    9,                              // bLength (1)
-    0x21,                           // bDescriptorType (1)  HID Descriptor (HID 1.11 page 59)
-    0x11, 0x01,                     // bcdHID (2)           HID 1.11
-    0,                              // bCountryCode (1)     Not supported
-    1,                              // bNumDescriptors (1)  Number of class descriptors (at least one Report Descriptor)
-    0x22,                           // bDescriptorType (1)  Report Descriptor (HID 1.11 page 59)
-    LSB(KEYBOARD_REPORT_DESC_SIZE), // wDescriptorLength (2)  Keyboard report size is 0x3F
-    MSB(KEYBOARD_REPORT_DESC_SIZE),
+    9,                    // bLength (1)
+    0x21,                 // bDescriptorType (1)  HID Descriptor (HID 1.11 page 59)
+    0x11, 0x01,           // bcdHID (2)           HID 1.11
+    0,                    // bCountryCode (1)     Not supported
+    1,                    // bNumDescriptors (1)  Number of class descriptors (at least one Report Descriptor)
+    0x22,                 // bDescriptorType (1)  Report Descriptor (HID 1.11 page 59)
+    LSB(0x3F), MSB(0x3F), // wDescriptorLength (2)  Keyboard report size is 0x3F
     // [bDescriptorType]    Optional descriptors (e.g. phyiscal descriptor)
     // [wDescriptorLength]  3 bytes each
 };
@@ -87,10 +87,10 @@ static uint8_t endpoint_descriptor_keyboard[] = {
     /**/ 250 /*1*/,  // bInterval (1)        Polling interval (in milliseconds)
 };
 
-// Differs from HID 1.11, which had Logical Maximum(101) 0x65 for keys
+// Differs from the appendix E example, which had Logical Maximum(101) 0x65 for keys
 // Teensy usb_desc.c says Logical Maximum(104) yet has 0x7F (which is 127)
 //
-// Check with HID1.11 page 38
+// Check HID1.11 page 38 for _some_ of the item prefix and 1-byte data codes.
 static uint8_t report_descriptor_keyboard[] = {
     0x05, 0x01, // Usage Page (Generic Desktop)
     0x09, 0x06, // Usage (Keyboard)
@@ -138,9 +138,10 @@ typedef struct
 const uint8_t usb_endpoint_config_table[NUM_ENDPOINTS];
 
 // An array of {wValue, wIndex, addressof(descriptor_array), sizeof(descriptor_array)}
-const usb_descriptor_list_t usb_descriptor_list[];
+const usb_descriptor_list_t usb_descriptor_list[0];
 
 #include <Arduino.h>
+
 
 int main()
 {
