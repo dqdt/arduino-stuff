@@ -253,6 +253,9 @@ Looking at `usb_dev.c`:
     * TX_STATE_[EVEN|ODD]_FREE
     * TX_STATE_BOTH_FREE_[EVEN|ODD]_FIRST
     * TX_STATE_NONE_FREE_[EVEN_ODD]_FIRST
+    * This state indicates that the hardware is able to transmit 0,1,2 packets.
+      * because it has EVEN and ODD buffers and the USB module uses at most one at a time
+      * you can queue two packets, set both OWN bits?
   * BDT_{OWN, DATA1, DATA0, DTS, STALL, PID}
     * BDT_DESC(count, data) forms upper 16 bits of the descriptor
     * index(ep, tx, odd) (ep << 2 | tx << 1 | odd)    (forms an index into the bdt)
@@ -268,21 +271,387 @@ Looking at `usb_dev.c`:
     * transmit(*data, len) { set address in BDT and toggle OWN bit? so the USB module begins a transfer}
 
 Now for the functions...
-* `usb_setup()` handles a SETUP request from the control pipe
-
-* `usb_control()`
-
-* `usb_rx()`
-* `usb_queue_byte_count()`
-* `usb_tx_byte_count()`
-* `usb_tx_packet_count()`
-* `usb_rx_memory()`
-* `usb_tx()`
-* `usb_isr()`
-  * 
 
 * `usb_init()`
   * `usb_init_serialnumber()` (check this later)
   * clear bdt memory
   * usb module initialization sequence
     * clock gating, set bdt page registers, clear isr flags, enable usb module, enable usb reset interrupt, enable interrupt bits in NVIC, enable D+ pullup
+
+* `usb_isr()`
+  * look here first?
+  * status = `USB0_ISTAT`  interrupt status 
+  * if received a SOF token,
+    * if usb was configured: (configuration happens in SETUP)
+      * decrement reboot_timer? then reboot teensy ??
+    * clear the SOFTOKEN flag
+  * if USBRST
+    * reset ODD bit
+    * initialize BDT endpoint 0 with buffer descriptor and pointer to memory
+    * activate USB0_ENDPT0 (RX,TX,HSHK shake) enable
+    * clear current interrupts
+    * reset USB0_ADDR to 0 (for the USB spec)
+    * enable interrupts
+    * USB0_USBCTL = USB_CTL_USBENSOFEN;  // enable again? redundant?
+  * if STALL:
+    * re-enable endpoint (RX,TX,HSHK) and clear ISTAT_STALL bit
+  * if ERROR:
+    * don't handle error. clear ISTAT_ERROR bit
+  * if SLEEP:
+    * ?? clear ISTAT_SLEEP bit
+  * if TOKDNE:
+    * stat = `USB0_STAT`
+    * endpoint = stat >> 4
+    * if endpoint == 0, move to `usb_control(stat)`
+      * else it's a endpoint for some interface
+      * packet = stat2bufferdescriptor(STAT) -> addr in BDT
+      * check if the most recent transaction was a TX or RX operation
+        * transmit
+          * usb_free(packet)  because we're done with this packet
+          * packet = tx_first[endpoint] ??
+          * tx_first[endpoint] = packet->next  move to next packet in the list?
+          * tx_state[endpoint] = use the even or odd buffer next?
+            * if no packet, both even and odd buffers become free
+            * b->desc gets updated if there is a packet, otherwise don't update
+        * receive
+          * initialize packet struct
+            * packet->len = b->desc >> 16   extract buffer length
+            * packet->index = 0, packet->next = NULL
+            * rx_first[endpoint] = packet or rx_last[endpoint]->next = packet
+              * rx_last[endpoint] = packet
+              * OK it looks like the packets form a linked list
+            * usb_rx_byte_count_data[endpoint] += packet->len
+          * allocate a new packet for the next receive
+            * packet = usb_malloc()
+            * buffer descriptor {addr = packet->buf, desc = ...}
+            * if unable to get a new packet, b_desc = 0 ...
+          * if received packet with zero-length data, just reset the buffer descriptor
+    * clear ISTAT_TOKDNE bit
+
+  * the code checks the status bits in a different order...
+
+* `usb_control()`
+  * types of packet IDs (PID)
+    * https://beyondlogic.org/usbnutshell/usb3.shtml
+    * TOKEN packets: In (0x09), Out (0x1), Setup (0x0D)
+    * Data packets: Data0 (0x03), Data1 (0x0B)
+    * Handshake packets: ACK (0x02), NAK (0x0A), STALL (0x0E)
+    * Start of frame packets: SOF (0x05)
+  
+  * convert USB0_STAT to a buffer descriptor in the BDT
+  * get the current buffer from BDT
+  * get packet id `PID` (token) from buffer descriptor.
+
+    * if PID is SETUP:
+      * setup comes with a data packet that is 8 bytes??
+      * release the current buffer, end any pending TX transfers on endpoint0, clear TX BDT entries for endpoint0
+        * ep0_tx_data_toggle = 1  (first IN after SETUP is always DATA1 ??)
+      * then jump to `usb_setup()`
+      * USB0_CTL = USB_CTL_USBENSOFEN   re-enable the USB (when did it get disabled?)
+        * there's a TXSUSPENDTOKENBUSY bit
+
+    * if PID is OUT
+      * it means data was received from host.
+        * for keyboards, it's could be the LED states
+      * status stage, send back a data packet of 0 length?
+        * endpoint0_transmit(NULL, 0)
+      * then give the buffer back (?)
+
+    * if PID is IN
+      * send remaining data, if any. but can't send more than EP0_SIZE bytes.
+        * guessing that it will send the rest next time?
+      * data = ep0_tx_ptr
+      * if (data)
+        * size = min(ep0_tx_ten, EP0_SIZE)
+        * endpoint0_transmit(data,size)
+        * data += size
+        * ep0_tx_len -= size
+        * ep0_tx_ptr = (ep0_tx_len > 0 || size == EP0_SIZE) ? data : NULL;
+
+      * if bRequest == 0x05 (SET ADDRESS) then set USB0_ADDR = wValue.
+        * the device should not set its address until after the completion of the status stage
+        * but why does setting the ADDR happen after the IN transaction?
+      
+
+* `usb_setup()` handles a SETUP request from the control pipe
+  * https://beyondlogic.org/usbnutshell/usb6.shtml
+    * The SETUP packet contains bmRequestType, bRequest, wValue, wIndex, wLength
+      * `bmRequestType`: data transfer direction, type (standard/class/vendor), recipient (device, interface, endpoint)
+        * usually the parser branches to a number of handlers
+      * `bRequest`: the request being made
+      * `wValue`, `wIndex`: other parameters in the request
+      * `wLength`: number of bytes if there is a data stage
+    * Standard Device requests:
+      * `0x00` GET_STATUS
+      * `0x01` CLEAR_FEATURE
+      * `0x02` SET_FEATURE
+      * `0x05` SET_ADDRESS
+      * `0x06` GET_DESCRIPTOR
+      * `0x07` SET_DESCRIPTOR
+      * `0x08` GET_CONFIGURATION
+      * `0x09` SET_CONFIGURATION
+
+  * it looks like there is a switch() statement and some of the branches fill a `reply_buffer` and set `data` and `datalen`
+    * after the switch() is a `send:` label:
+      * datalen = min(datalen, wLength)  // truncate
+      * send at most two packets
+        * size = min(size, EP0_SIZE)
+        * endpoint0_transmit(data, size)
+        * data += size  // advance the ptr
+        * datalen -= size
+        * if (datalen == 0 && size < EP0_SIZE) early return;
+        * repeat once more for another packet
+      * if there is still data to be sent:
+        * ep0_tx_ptr = data
+        * ep0_tx_len = datalen
+  * switch (wRequestAndType)
+    * SET_ADDRESS
+      * do nothing, address will be set later, at the end of the status stage
+    * SET_CONFIGURATION
+      * `usb_configuration` = wValue
+      * cfg = usb_endpoint_config_table
+      * clear all BDT entries that the USB module owns 
+        * free the usb_packet_t in use by that endpoint
+      * free all queued packets
+        * p = rx_first[ep]; while (p) {n = p->next; usb_free(p); p = n;}; rx_first[ep] = rx_last[ep] = null;
+        * p = tx_first[ep]; ...
+        * usb_rx_byte_count_data[ep] = 0
+        * tx_state[ep] = BOTH_FREE_[EVEN|ODD]_FIRST, depending on what which one (even or odd) is currently free
+      * then clear the bdt entries (other than endpoint 0)?
+        * epconf = *cfg++
+        * *(&USB_ENDPTx) = epconf  // update the low 8 bits with the default config (initialized in usb_endpoint_config_table)
+        * if (epconf & USB_ENDPT_EPRXEN) // enabled for RX
+          * re-initialize the BDT entries for this endpoint (EVEN and ODD). 
+          * RX buffer entries:
+            * need to allocate a buffer
+            * BDT_DESC(64, DATA0 for EVEN, DATA1 for ODD)
+          * TX buffer entries:
+            * set both TX descriptors = 0
+
+    * GET_CONFIGURATION
+      * reply_buffer[0] = usb_configuration  // the configuration value was stored here
+    * GET_STATUS (device)
+      * reply_buffer = [0,0], datalen = 2
+      * the GET Status request directed at the device will return two bytes during the data stage with the following format:
+        * bit [1] remote wakeup
+        * bit [0] self powered
+          * the remote wakeup bit can be changed by the SetFeature and ClearFeature requests with a feature selector of DEVICE_REMOTE_WAKEUP (0x01)
+    * GET_STATUS (endpoint)
+      * the recipient is encoded in the lowest 5 bits of bmRequestType
+      * endpoint index is i = wIndex?
+        * if (USB0_ENDPT0 + 4*i) & 0x02 then reply_buffer[0] = 1
+          * why are we checking if the endpoint is stalled?
+    * CLEAR_FEATURE (endpoint)
+      * (*(uint8_t *)(&USB0_ENDPT0 + i * 4)) &= ~0x02;
+      * clear the stall bit of the specified endpoint
+    * SET_FEATURE (endpoint)
+      * set the stall bit of the specified endpoint
+    * GET_DESCRIPTOR (to a device or interface recipient)
+      * loop through usb_descriptor_list
+        * look at it
+        * usb_descriptor_list is in `usb_desc.c` and provides access to all the descriptors (device, configuration, interface, endpoint, ...)
+        * the struct `usb_descriptor_list_t` has {uint16 wValue, uint16 wIndex, const uint8 addr, uint16 length}
+      * if wValue == list->wValue && wIndex == list->wIndex
+        * wValue is the descriptor type and index
+        * wIndex is zero or language ID
+        * data = list->addr
+          * for string descriptors, use the descriptor's length field (datalen = *(list->addr)), else datalen = list->length
+        * goto send label, since the descriptor is found
+        * if descriptor not found, stall endpoint0.
+    * if unsupported request and type, stall
+
+* `usb_rx()`
+  * receive a packet from this endpoint
+  * disable interrupts
+    * ret = rx_first[endpoint]
+    * if (ret) { rx_first[endpoint] = ret->next; rx_byte_count_data[endpoint] -= ret->len }
+      * we took the first node of this endpoint's RX linked list
+  * re-enable interrupts
+
+* `usb_queue_byte_count()`
+  * counts the total number of data bytes for packets in the queue
+  * for( ;p; p = p->next) count += p->len;
+
+* `usb_tx_byte_count()`
+  * return usb_queue_byte_count(tx_first[endpoint])
+  * ok, same thing... linked lists
+
+* `usb_tx_packet_count()`
+  * same thing, traverses a linked list
+
+* `usb_rx_memory()`
+  * called from usb_free() when usb_rx_memory_needed > 0
+  * loops 1..NUM_ENDPOINTS and gives a packet to the first endpoint that needs it
+    * if the endpoint is configured for RX:
+      * is the EVEN descriptor == 0? give it to EVEN slot, with DATA0
+      * else is the ODD descriptor free? give it, with DATA1
+  
+* `usb_tx()`
+  * check tx_state[endpoint] to determine if we should put the next packet in the EVEN or ODD TX buffer
+  * BOTH_FREE_EVEN_FIRST: put into even, next state will be ODD_FREE
+  * BOTH_FREE_ODD_FIRST: put into odd, next state is EVEN_FREE
+  * EVEN_FREE: put into even, next state is NONE_FREE_ODD_FIRST
+  * ODD_FREE: put into odd, next state is NONE_FREE_EVEN_FIRST
+  * otherwise if none are free currently, queue up the next packet into this endpoint's tx linked list:
+    * tx_first[ep] == null? tx_first = packet, else  tx_last[ep]->next = packet
+    * then early return
+  * if there is a buffer descriptor available, 
+    * set b->desc and b->addr. DATA1 if b&8 else DATA0 ??
+      * the 32-bit descriptor should match the buffer descriptor in the datasheet? (page 637)
+      * DATASHEET:
+        * [25:16] byte count
+        * [7] own 
+        * [6] data0/1
+        * [5] keep
+        * [4] ninc
+        * [3] dts
+        * [2] bdt_stall
+      * `usb_dev.c`
+        * BDT_OWN 0x80    same
+        * BDT_DATA1 0x40  same
+        * BDT_DATA0 0x00
+        * BDT_DTS 0x08    same
+        * BDT_STALL 0x04  same
+        * BDT_PID(n) (n>>2) & 15  same [5:2] can also be TOK_PID[3:0]
+      * so what does b&8 mean? b is cast to a uint32_t, which becomes the descriptor part of the struct? 
+      * then whether it's DATA0/1 must be the same as DTS?
+        * data toggle synchronization
+        * https://wiki.osdev.org/Universal_Serial_Bus#Data_Toggle_Synchronization
+          * the host maintains a data toggle bit for every endpoint with which it comminucates
+          * the state of the data toggle bit is indicated by the DATA PID (ok, so DATA0 or DATA1)
+          * the receiver toggles its data sequence bit when it is able to accept data and it receives an error-free packet with the expected DATA PID
+          * the sender toggles its data sequence bit upon receiving a valid ACK handshake
+          * the sender and receiver synchronize their data toggle bits at the start of a transaction
+            * control transfers initialize endpoint toggle bits to 0 with a SETUP packet
+            * interrupt endpoints intialize their data toggle bits to 0 upon any configuration event
+            * 
+    * set tx_state[ep] = next state
+
+### `usb_keyboard.c`
+* uses usb_desc.h and keylayouts.h
+* usb_keyboard_class implements Print... why?
+* write(uint8), write_unicode(uint16), set_modifier(uint16), set_key[1-6](uint8), set_media(uint16)
+* send_now(), press(), release(), releaseAll()
+
+Global variables:
+* uint8 keyboard_modifier_keys
+  * bitmask for left/right ctrl/shift/alt/gui(?)
+* uint8 keyboard_keys[6]
+  * how do they know the keycodes? USB HID usage tables has a table for keys
+* uint8 keyboard_protocol = 1
+  * bInterfaceProtocol = 1 for keyboard 
+    * iirc there's a boot protocol and report protocol
+      * but it doesn't matter(?)
+* uint8 keyboard_idle_config
+  * ms*4  how often reports are periodically sent to the host
+* uint8 keyboard_idle_count
+  * count until idle timeout
+* uint8 keyboard_leds
+  * bitmask for keyboard leds
+
+The functions...
+* `usb_keyboard_write(uint c)`
+  * if (c < 0x80) 
+    * go straight to keyboard_write_unicode
+  * if (c < 0xC0)
+    * means it's a 2nd, 3rd, or 4th byte, 0x80 to 0x8F
+  * WAIT A MINUTE it's assuming it's unicode
+    * this function has static variables utf8_state, unicode_wchar
+    * not sure how it is used yet. for international layouts, i can assume there are unicode chars.
+      * but how does the computer differentiate it?? there is a country code in the HID descriptor...
+    * https://forum.pjrc.com/threads/47473-Teensy-write-key-by-key-UTF-8
+      * on non-US keyboard layouts, pressing shift+alt gives a third function (rather than just two: shift -> uppercase or lowercase)
+      * maybe third or fourth functions (shift and/or alt)
+      * dead-key sequences (for typing accents): depends on the key you previously pressed
+        * like ctrl+k, ctrl+c  to auto-format in vscode...
+    * https://forum.pjrc.com/threads/43569-Keyboard-Send-Any-Unicode-Character
+      * they decided to make every keyboard identical and merely put different keycap labels
+      * HID defines usage numbers for the various key positions, not their characters
+        * Usage ID and Usage Name
+        * Usage 224 = LeftCtrl, 225 LeftShift, ... 231 RightGUI
+        * It's up to the Host to decode the usage numbers based on your layout (?)
+* `unicode_to_keycode(uint16_t cpoint)`
+  * converts unicode chars to a uint8 key and a modifier mask?
+* `deadkey_to_keycode(KEYCODE_TYPE)`
+  * keys substituting for other functions...
+* `usb_keyboard_write_unicode(uint16_t cpoint)`
+  * keycode = unicode_to_keycode(cpoint)
+  * if (keycode)
+    * deadkeycode = deadkey_to_keycode(keycode)
+    * if (deadkeycode) write_key(deadkeycode)
+    * write_key(keycode)
+* `write_key(uint8 keycode)`
+  * usb_keyboard_press(keycode_to_key(keycode), keycode_to_modifier(keycode))
+* `keycode_to_modifier(uint8 keycode)`
+  * if keycode & SHIFT_MASK?  modifier |= MODIFIER_KEY_SHIFT
+  * if keycode & ALTGR_MASK? RCTRL_MASK? 
+  * keycodes have modifier mask bits in fixed positions?
+* `keycode_to_key(uint8 keycode)`
+  * keycode & 0x3F  (up to 63)
+    * SHIFT_MASK is 0x40, raising it to 127
+    * ALTGR_MASK is 0x80
+    * RCTRL_MASK is 0x0800
+    * if key == KEY_NON_US_100 (63) then key=100
+* `usb_keyboard_press_keycode(uint16 n)`
+  * msb = n >> 8
+  * if msb >= 0xC2
+    * if msb <= 0xDF
+      * n = (n & 0x3F) | ((uint16_t)(msb & 0x1F) << 6)   // ???
+      * keycode = unicode_to_keycode(n)  // woah
+      * mod, key = keycode_to_modifier(keycode), keycode_to_key(keycode)
+      * usb_keyboard_press_key(key, mod | modrestore)
+        * modrestore is for deadkeys
+        * un-press all modifier keys, do a press, then press them again (OR them back in)
+    * if msb == 0xF0
+      * usb_keyboard_press_key(n, 0)
+    * if msb == 0xE0                   what does it mean?!?!
+      * usb_keyboard_press_key(0, n)
+* `usb_keyboard_release_keycode(uint16 n)`
+  * same thing...
+    * usb_keyboard_release_key(key, mod)  // no modrestore needed
+* `usb_keyboard_press_key(uint8 key, uint8 modifier)`
+  * at the end:  if (send_required) usb_keyboard_send();
+  * send only if something changed (a bit in keyboard_modifier_keys, or keys[])
+* `usb_keyboard_release_key(uint8 key, uint8 modifier)`
+  * similar. only send if something changed
+* `usb_keyboard_release_all()`
+  * only send if something changed. OR modifiers and keys[i]
+* `usb_keyboard_press(uint8 key, uint8 modifier)`
+  * press one key only, with these modifiers. send.
+  * then release all keys and modifiers. send.
+* `#define TX_PACKET_LIMIT 4`
+  * static uint8 transmit_previous_timeout
+  * max number of packets in the queue
+  * `#define TX_TIMEOUT_MSEC 50`
+  * `#define TX_TIMEOUT (TX_TIMEOUT_MSEC * 428)`
+* `usb_keyboard_send()`
+  * wait until something...
+    * while (1)
+      * if (!usb_configuration)  return -1
+        * not configured yet (need setup packet SET_CONFIGURATION)
+      * if (usb_tx_packet_count(KEYBOARD_ENDPOINT) < TX_PACKET_LIMIT) tx_packet = usb_malloc() and continue if success
+      * if (++wait_count > TX_TIMEOUT || transmit_previous_timeout) transmit_previous_timeout = 1; return -1  
+        * give up on transmitting after timeout. something else has to clear the timeout flag
+      * yield() ??  don't hog the processor (this is a while(1), after all)
+  * send the contents of keyboard_keys and keyboard_modifier_keys
+    * *(tx_packet->buf) = keyboard_modifier_keys
+    * *(tx_packet->buf+1) = 0   // reserved byte
+    * memcpy(tx_packet->buf+2, keyboard_keys, 6);
+    * tx_packet->len = 8
+    * usb_tx(KEYBOARD_ENDPOINT, tx_packet)
+* keymedia keys
+  * consumer keys, system keys
+    * press, release, release_all
+  * `usb_keymedia_send`
+    * the packet data length is still 8 bytes, but it's packed differently?
+    * usb_tx(KEYMEDIA_ENDPOINT, tx_packet)
+
+that's all for the "extern C" functions.
+usb_keyboard_class derives from the Print class
+* begin() and end() are from print
+  * need to know 
+* write(c) calls usb_keyboard_write(c)
+* send_now() calls usb_keyboard_send(), which is the thing calling usb_tx()
+
+Where is `usb_init()` called?
+* pins_teensy.c
