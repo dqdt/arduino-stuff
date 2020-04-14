@@ -75,8 +75,15 @@ I want to try N-key rollover by modifying the keyboard report descriptor, and th
         *(tx_packet->buf + 8 + i/8) |= 1 << (i & 7);
       }
     }
+    for(int k=0; k < 6; k++) {
+      int i = keyboard_keys[k];
+      *(tx_packet->buf + 8 + i/8) &= ~(1 << (i & 7));
+    }
     tx_packet->len = 32;
     ```
+* When a key when is recorded in the length-6 array AND in one of the 102 bits, and then that key is released, there will be two "release" events detected for that key... But when pressing down, there's only one "press" event.
+  * fix: after setting all bits, clear all bits for keys that are present in keyboard_keys
+
 
 ### Debouncing
 What about debouncing? (gateron yellows)
