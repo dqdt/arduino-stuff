@@ -28,5 +28,56 @@ What happens when you hold down 6 keys and press a new key? Does it "make room" 
     * on a falling edge, pop the key from the list, if it exists (it could have already been "shifted" out)
     * O(n) list operations, but it's only N=6...
 
+### N-key rollover
+I want to try N-key rollover by modifying the keyboard report descriptor, and the send_now function...
+* my idea is to add bitmasks for all keys (as with the modifiers) after the initial 8 bytes
+  * 101/8 = 12.625 => 13 bits
+  * 8+13=21 round up to 32
+* `usbdesc.h`
+  * change KEYBOARD_SIZE from 8 to 32?
+* `usbdesc.c`
+  * change keyboard_report_desc[]
+    ```
+    // Appended bits
+    // packet size is 32 bytes, so 24 extra bytes
+    // 24*8 = 192 = 101 + 91 => need 91 bits of padding
+    0x05, 0x07,                     //   Usage Page (Key Codes),
+    0x19, 0x00,                     //   Usage Minimum (0),
+    0x29, 0x65,                     //   Usage Maximum (101),
+    0x15, 0x00,                     //   Logical Minimum (0),
+    0x25, 0x01,                     //   Logical Maximum (1),
+    0x75, 0x01,                     //   Report Size (1),
+    0x95, 0x65,                     //   Report Count (101),
+    0x81, 0x02,                     //   Input (Data, Variable, Absolute), ;bits for all non-modifier keys
+
+    0x75, 0x01,                     //   Report Size (1),
+    0x95, 0x5B,                     //   Report Count (91),
+    0x81, 0x03,                     //   Input (Constant),          ;padding
+    ```
+  * change config_descriptor[]
+    * do we need to change this?
+      * ~~change bInterfaceSubclass from (0x01 = Boot)  to (0x00 = No Subclass)~~
+      * no, it works with 0x01 Boot 
+* `usb_keyboard.h`
+  * add `extern uint8_t key_state[102]`
+* `usb_keyboard.c`
+  * change usb_keyboard_send() to include the appended bytes
+    ```
+    *(tx_packet->buf) = keyboard_modifier_keys;
+    *(tx_packet->buf + 1) = 0;
+    memcpy(tx_packet->buf + 2, keyboard_keys, 6);
+    // tx_packet->len = 8;
+
+    // added bits
+    memset(tx_packet->buf + 8, 0, 24);
+    for(int i=0; i < 102; i++) {
+      if (key_state[i]) {
+        *(tx_packet->buf + 8 + i/8) |= 1 << (i & 7);
+      }
+    }
+    tx_packet->len = 32;
+    ```
+
+### Debouncing
 What about debouncing? (gateron yellows)
 * it's actually pretty bad... but debouncing is expected, i guess
