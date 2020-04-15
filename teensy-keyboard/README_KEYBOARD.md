@@ -59,32 +59,63 @@ I want to try N-key rollover by modifying the keyboard report descriptor, and th
       * ~~change bInterfaceSubclass from (0x01 = Boot)  to (0x00 = No Subclass)~~
       * no, it works with 0x01 Boot 
 * `usb_keyboard.h`
-  * add `extern uint8_t key_state[102]`
+  * add
+  ```
+  extern uint8_t key_state[102];
+  ```
 * `usb_keyboard.c`
   * change usb_keyboard_send() to include the appended bytes
     ```
-    *(tx_packet->buf) = keyboard_modifier_keys;
+	  *(tx_packet->buf) = keyboard_modifier_keys;
     *(tx_packet->buf + 1) = 0;
     memcpy(tx_packet->buf + 2, keyboard_keys, 6);
     // tx_packet->len = 8;
 
-    // added bits
+    // additional bits
     memset(tx_packet->buf + 8, 0, 24);
     for(int i=0; i < 102; i++) {
-      if (key_state[i]) {
+      if (!key_state[i]) {  // counted down to zero
         *(tx_packet->buf + 8 + i/8) |= 1 << (i & 7);
       }
     }
     for(int k=0; k < 6; k++) {
-      int i = keyboard_keys[k];
+      int i = keyboard_keys[k]; // clear bits for keys that are already in the length-6 array
       *(tx_packet->buf + 8 + i/8) &= ~(1 << (i & 7));
     }
     tx_packet->len = 32;
     ```
-* When a key when is recorded in the length-6 array AND in one of the 102 bits, and then that key is released, there will be two "release" events detected for that key... But when pressing down, there's only one "press" event.
+* When a key when is recorded in the length-6 array AND in one of the 102 bits, then when that key is released, there will be two "release" events detected for that key... But when pressing down, there's only one "press" event. (seen on Switch Hitter)
   * fix: after setting all bits, clear all bits for keys that are present in keyboard_keys
-
+  * seems like it's implementation-dependent on Windows...
 
 ### Debouncing
 What about debouncing? (gateron yellows)
-* it's actually pretty bad... but debouncing is expected, i guess
+* it actually happens frequently... but needing debouncing is expected, i guess
+* measuring the main loop:
+  ```
+  while (1)
+  {
+      uint32_t start_time = micros();
+
+      state_changed = false;
+      check_modifiers();
+      check_keys();
+
+      if (state_changed)
+      {
+          Keyboard.send_now();
+      }
+
+      Serial.println(micros() - start_time);
+      delay(100);
+  }
+  ```
+  * the loop takes ~400/450 us without/with send_now()
+* https://github.com/qmk/qmk_firmware/issues/910
+  * debouncing in software
+  * if key_state[k] == 0, the key is not pressed
+  * when the key is held down, increment key_state[k]
+  * if key_state[k] == DEBOUNCE_COUNT, say that we have detected a key press.
+    * is DEBOUNCE_COUNT = 2 good enough? 3?
+    * check enough times to last 5ms (for cherry MX switches)?
+  * it might be better to count down rather than up (know that it's pressed when ZERO. Then the other code doesn't need to know initial countdown value.)
