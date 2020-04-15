@@ -95,6 +95,10 @@
 #define ROW4PIN 11
 #define ROW5PIN 12
 
+// don't use pin13 because there's an led there...
+#define CAPS_LOCK_LED 14   // bit 1
+#define SCROLL_LOCK_LED 15 // bit 2
+
 #define DEBOUNCE_COUNT 7 // how many consecutive HIGH samples to determine a rising edge
 
 const int rowPins[] = {7, 8, 9, 10, 11, 12};
@@ -275,6 +279,9 @@ int main()
         pinMode(rowPins[i], INPUT);
     }
 
+    pinMode(CAPS_LOCK_LED, OUTPUT);
+    pinMode(SCROLL_LOCK_LED, OUTPUT);
+
     // Initialize all keys to unpressed
     memset(key_state, DEBOUNCE_COUNT, 102);
 
@@ -306,6 +313,9 @@ int main()
             // Serial.print('|');
             Keyboard.send_now();
         }
+
+        digitalWrite(CAPS_LOCK_LED, keyboard_leds & 0b10);
+        digitalWrite(SCROLL_LOCK_LED, keyboard_leds & 0b100);
 
         // Serial.println(micros() - start_time);
         // delay(100);
