@@ -1,6 +1,6 @@
 Driving WS2812B rgb leds with a Teensy-LC. 
 
-In the past I learned about driving WS2812Bs with an arduino:
+### In the past I learned about driving WS2812Bs with an arduino:
 * https://wp.josh.com/2014/05/13/ws2812-neopixels-are-not-so-finicky-once-you-get-to-know-them/
 * https://cpldcpu.wordpress.com/2014/01/14/light_ws2812-library-v2-0-part-i-understanding-the-ws2812/
 * My understanding is that the WS2812B leds have a shift register (actually, it is the integrated constant-current driver IC, the WS2811?). Data is sent to the DIN pin, bit-by-bit. Bits are encoded as pulses:
@@ -21,7 +21,7 @@ In the past I learned about driving WS2812Bs with an arduino:
     * I'm assuming the LEDs reshape and output data at a fixed rate. Then you can't input data faster than it's outputting, ...?
       * I didn't look into this
 
-Ways to drive WS2812B:
+### Ways to drive WS2812B:
 * there's a rabbit hole of links...
   * https://hackaday.com/2014/09/10/driving-ws2812b-pixels-with-dma-based-spi/
   * https://www.instructables.com/id/My-response-to-the-WS2811-with-an-AVR-thing/
@@ -50,7 +50,7 @@ Ways to drive WS2812B:
 * Bit banging:
   * In a blocking loop, read rgb data from memory and set the GPIO output manually.
 
-DMA (Direct Memory Access) on the Teensy:
+### DMA (Direct Memory Access) on the Teensy:
 * See the application note AN4631
   * One of the main points is to reduce power consumption. Power is consumed every time transistors switch, so it would be better for peripherals to operate asynchronous to the CPU clock (ADC, DAC, UART, I2C, SPI, TPM (Timer/Pulse Module), Low Power Timer (LPTMR))
 * Configure the DMA
@@ -77,7 +77,7 @@ DMA (Direct Memory Access) on the Teensy:
   * "cycle steal": only one tranfser per DMA request (how?)
   * DMA writing to a static array (circular buffer)?
 
-Datasheet Chaper 22: DMA Multiplexer
+### Datasheet Chaper 22: DMA Multiplexer
 * Routes DMA sources (slots) to DMA channels.
   * up to 63 peripheral slots, up to 4 always-on slots (?), routed to 4 channels
 * Modes of operation:
@@ -101,7 +101,7 @@ Datasheet Chaper 22: DMA Multiplexer
   * Clear the DMA channel config register, Configure the DMA and enable it, Configure the corresponding timer (if periodic triggering), Set the channel config register
     * (channel config is not the same as DMA configuration? Well this *is* only the MUX chapter...)
   
-Datasheet Chapter 23: DMA Controller Module
+### Datasheet Chapter 23: DMA Controller Module
 * DMA controller module allows fast transfer of data without processor interaction
 * 4 channels, n=0,1,2,3
   * 8, 16, or 32-bit transfers
@@ -170,3 +170,78 @@ Datasheet Chapter 23: DMA Controller Module
 * Termination:
   * error conditions: DSRn[BES or BED]: error on the bus
   * interrupts: if DCRn[EINT] is set, the DMA drives the corresponding interrupt request signal. The processor reads DSRn to see if the transfer was successful or an error. Write a 1 to DSRn[DONE] to clear the interrupt, DONE bit, and error status bits.
+
+
+### Timer/PWM
+* Teensy-LC Pin 17 is PWM. Let's try it, as I haven't used it yet.
+
+### Datasheet Chapter 31: Timer/PWM Module (TPM)
+* The TPM is built on the HCS08 TPM used on Freescale's 8-bit MCUs, and modified to run in low power modes by clocking the counter, compare and capture registers on an asynchronous clock.
+* Modes of operation:
+  * Debug mode: can be configured to pause counting and ignore trigger inputs / and input capture events.
+  * Doze mode: can be configured to pause counting  ?????
+  * Stop mode: TPM counter clock can still run, and TPM can generate an asynchronous interrupt to exit the MCU from stop mode
+* Block diagram:
+  * clock select -> prescalar -> module counter -> (timer overflow interrupt) and connected to (n) channels ??
+  * each TPM channel can be configured as input or output
+* Registers:
+  * TPMx_SC: Status and Control
+    * DMA: Enable DMA transfers for the overflow flag, TOF: Timer overflow flag, TOIE: Timer overflow interrupt enable, CPWMS: Center-aligned PWM select (operate in up-down counting mode), CMOD: Clock mode select, PS: Prescale factor select (2^[0-7])
+  * TPMx_CNT: Counter value. Writing any value will clear the counter. Reading this register adds two wait states due to synchronization delays (??)
+  * TPMx_MOD: Modulo: When the TPM counter reaches the modulo value and increments, the TOF flag is set and the next value depends on the counting method. Writing to MOD actually writes to a buffer, and the register is updated later. Write to CNT before writing to MOD, so to avoid confusion as to when overflow occurs.
+  * TPMx_CnSC: Channel (n) Status and Control:
+    * When switching from one channel mode to a different channel mode, disable the channel first.
+    * Modes: Software compare, Input Capture (capture on rising edge,falling, or both), Output Compare (set/clear/toggle on match, pulse output low/high on mactch), Edge-aligned PWM (high-true pulses (clear output on match, set output on reload), low-true pulses (clear on reload, set on match)), Center-aligned PWM (high-true pulses(clear on match-up, set on match-down ???), low-true pulses)
+    * CHF: Set by hardware when an event occurs on the channel. Clear by writing 1. CHIE: Channel interrupt enable. MSB, MSA: Channel Mode select. ELSB,ELSA: Edge or level select. DMA: DMA Enable.
+  * TPMx_CnV: Channel (n) Value: contains the captured TPM counter value for input modes, or the match value for output modes. Writes to CnV will latch it to a buffer, and subsequent writes are ignored until the register has been updated.
+  * TPMx_STATUS: Capture and compare status:
+    * Contains a copy of the status flag CnSC[CHnF] for each TPM channel, and SC[TOF], for software convenience. All ChnF bits can be checked with one read.
+  * TPMx_CONF: Configuration
+    * this register selects the behavior in debug and wait modes and the use of an external global time base (??)
+    * TRGSEL: Trigger select for starting the counter and/or reloading the counter, CROT: Counter reload on trigger, CSOO: Counter stop on overflow, CSOT: Counter start on trigger, GTBEEN: Global time base enable (use this instead of the internal TPM counter), DBGMODE: Debug mode, DOZEEN: Doze enable: configures for wait mode
+    * ugh
+* Clock domains:
+  * bus clock domain is used by the register interface and for synchronizing interrupts and DMA requests
+  * TPM counter clock domain is used to clock the counter and prescalar along with the output compare and input capture logic. The counter clock is considered asynchronous to the bus clock.
+  * CMOD[1:0] either disables the TPM counter or selects a clock mode for the TPM counter.
+  * An external clock input passes through a synchronizer clocked by the TPM counter clock...
+  * The selected clock source passes through a prescalar that is a 7-bit counter.
+* Up-counting is selected when SC[CPWMS] = 0
+  * counts from 0 to MOD, reset back to 0...
+    * MOD+1 counts in a period
+    * TOF overflow flag is set at the same time the counter is reset to zero.
+* Up-down counting is selected when SC[CPWMS] = 1
+  * MOD cannot be less than 2.
+  * counts from 0 to MOD to 0...
+    * 2*MOD counts in a period
+    * TOF flag is set at the same time MOD decrements to MOD-1.
+* Reset: Any write to CNT resets the TPM counter and channel outputs to their initial values.
+* Global time base (GTB):
+  * allows multiple TPM modules to share the same timebase. The local TPM channels use the counter value, counter enable, and overflow indication from the TPM generating the global time base. 
+* Counter trigger:
+  * TPM counter can start,stop,or reset in response to a hardware trigger input. The trigger input is synchronized to the asynchronous counter clock, so there is a 3 counter clock delay between the trigger assertion and the counter responding.
+* Input capture mode:
+  * when a selected edge occurs on the channel input, the current value of the TPM counter is captured in the CnV register. At the same time, CHnF bit is set and an interrupt is generated if CHnIE.
+* Output compare mode:
+  * The TPM can generate timed pulses with programmable position, polarity, duration, and frequency.
+  * When the counter matches the value in the CnV register, the channel (n) output can be set,cleared,toggled, or pulsed high or low for as long as the counter matches the value in the CnV register.
+* Edge-aligned PWM
+  * Count from 0 to MOD. Set on overflow, clear on CnV (or negated pulse). The start edge of the pulse is aligned with the beginning of the period (overflow), and is the same for all channels within a TPM.
+* Center-aligned PWM
+  * The pulses are centered for all channels within a TPM.
+  * Counts from 0 to MOD to 0. Duty cycle is 2 * CnV and period is 2 * MOD. 
+  * When counting down, set after seeing CNT==CnV+1. When counting up, clear after seeing CNT==CnV-1. So it's HIGH when the count is [CnV .. 0 .. CnV-1].
+  * CHnF bit is set at both compare matches when counting up and down
+* Updating MOD/CnV registers:
+  * If clock is disabled, MOD is updated on write. If the clock is enabled, and if the mode is not CPWM, then MOD is updated after overflow (this prevents the counter from being above MOD). If the mode _is_ CPWM, it's updated when MOD goes to MOD-1 (begins decrementing).
+  * Updates to CnV is delayed similarly.
+* DMA:
+  * The channel generates a DMA transfer according to DMA and CHnIE bits.
+  * CHnF is cleared by the hardware when the DMA transfer is done, or if software writes a 1 to the CHnF bit.
+* Output triggers:
+  * Counter trigger asserts whenever the TOF is set and remains asserted until the next increment.
+  * Each TPM channel generates a pre-trigger and trigger output.
+    * Pre-trigger asserts when CHnF is set, the Trigger asserts on the counter increment after the pre-trigger asserts, and both are cleared on the next counter increment.
+* Interrupts:
+  * Timer overflow:  TOIE = 1 and TOF = 1
+  * Channel (n); CHnIE = 1 and CHnF = 1
