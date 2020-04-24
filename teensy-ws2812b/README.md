@@ -298,4 +298,15 @@ Driving WS2812B rgb leds with a Teensy-LC.
   * (pg.135)
   * SIM_SOPT2[PLLFLLSEL], SIM_SOPT2[TPMSRC]
 
+Took note of how this guy initialized the TPM:
 * https://shawnhymel.com/649/learning-the-teensy-lc-manual-pwm/
+
+A better explanation of the DMA writing to GPIO port SET/CLEAR registers:
+* https://mcuoneclipse.com/2015/08/05/tutorial-adafruit-ws2812b-neopixels-with-the-freescale-frdm-k64f-board-part-5-dma/
+* I think you'd have to turn off the timers ASAP after the last falling edge, or else it will send another pulse...
+* WAIT! If there is no more data remaining, nothing will be written to the port registers! We don't HAVE to turn off the timers (but do it to save power).
+  
+Counting cycles? `ARM_DWT_CYCCNT`
+* aww. Doesn't look like Teensy LC (Cortex M0+) has CYCCNT.
+* It's used in AudioStream.cpp, but on the PJRC page, the TeensyLC is not supported.
+* https://forum.pjrc.com/threads/28407-Teensyduino-access-to-counting-cpu-cycles?p=71036&viewfull=1#post71036
