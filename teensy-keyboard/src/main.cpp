@@ -1,5 +1,155 @@
 #include <Arduino.h>
 
+const int NUM_LED = 20;
+uint8_t leds[3 * NUM_LED] = {0};
+
+uint32_t led_time = 0;               // last update time, in micros()
+const uint32_t led_interval = 16667; // 60 hz?
+
+// pin 17 = GPIO B, pin 1
+void bitbang_leds()
+{
+    __disable_irq();
+    for (int i = 0; i < 3 * NUM_LED; i++)
+    {
+        uint8_t val = leds[i];
+        for (int j = 0; j < 8; j++)
+        {
+            GPIOB_PSOR = 0b10; // set the pin
+            if (val & 0x80)
+            {
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 5
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 10
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 15
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 20
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 25
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 30
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 35
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 40
+                GPIOB_PCOR = 0b10;   // clear the pin
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 5
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 10
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 15
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 20
+            }
+            else
+            {
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 5
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 10
+                GPIOB_PCOR = 0b10;   // clear the pin
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 5
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 10
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 15
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 20
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 25
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 30
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 35
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 40
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 45
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop");
+                asm volatile("nop"); // 50
+            }
+            val <<= 1;
+        }
+    }
+    __enable_irq();
+}
+
 // HID Usage Table for Keyboard (and keylayouts.h)
 #define K_A 4
 #define K_B 5
@@ -267,6 +417,8 @@ int main()
 {
     Serial.begin(115200);
 
+    pinMode(17, OUTPUT);
+
     pinMode(S0PIN, OUTPUT);
     pinMode(S1PIN, OUTPUT);
     pinMode(S2PIN, OUTPUT);
@@ -317,6 +469,36 @@ int main()
         digitalWrite(CAPS_LOCK_LED, keyboard_leds & 0b10);
         digitalWrite(SCROLL_LOCK_LED, keyboard_leds & 0b100);
 
+        uint32_t now = micros();
+        if (now - led_time > led_interval)
+        {
+            // f(k*x + om*t)
+
+            // Do LED update stuff
+            for (int i = 0; i < NUM_LED; i++)
+            {
+                double x = PI * i / NUM_LED; // space
+                double t = now / 1000000.0;  // time
+                // double t = now;
+
+                double r = cos(x + t);
+                double g = cos(x + PI / 3.0 + t);
+                double b = cos(x + PI * 2.0 / 3.0 + t);
+
+                leds[3 * i + 0] = 100 * r * r;
+                leds[3 * i + 1] = 100 * g * g;
+                leds[3 * i + 2] = 100 * b * b;
+            }
+            // for (int i = 0; i < 3 * NUM_LED; i++)
+            // {
+            //     Serial.print(leds[i]);
+            //     Serial.print(' ');
+            // }
+            // Serial.println();
+            bitbang_leds();
+
+            led_time = now;
+        }
         // Serial.println(micros() - start_time);
         // delay(100);
     }
