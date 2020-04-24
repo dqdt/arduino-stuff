@@ -26,7 +26,6 @@ Driving WS2812B rgb leds with a Teensy-LC.
   * https://hackaday.com/2014/09/10/driving-ws2812b-pixels-with-dma-based-spi/
   * https://www.instructables.com/id/My-response-to-the-WS2811-with-an-AVR-thing/
   * https://github.com/FastLED/FastLED/wiki/SPI-Hardware-or-Bit-banging
-    * avoids the lower-level details...
   * https://hackaday.com/2016/10/06/driving-16-ws2812b-strips-with-gpios-and-dma/
   * http://www.martinhubacek.cz/arm/improved-stm32-ws2812b-library
     * writing ports in parallel, using three-DMA transfers:
@@ -245,3 +244,58 @@ Driving WS2812B rgb leds with a Teensy-LC.
 * Interrupts:
   * Timer overflow:  TOIE = 1 and TOF = 1
   * Channel (n); CHnIE = 1 and CHnF = 1
+
+### Now what
+* https://www.pjrc.com/non-blocking-ws2812-led-library/
+* Let's try bit-banging the WS2812B data signal (disable interrupts). I don't know if this will interfere with the USB interrupts...
+  * How can I bit-bang in assembly if I don't know the instruction set, or how it's done in ARM? Is it worth trying?
+  * Can we bit-bang in software by checking the elapsed time / clock cycles?
+  * The `micros()` function seems to rely on "systick" to increment a counter...
+* System timer -- SysTick ARMv7-M Architecture Reference Manual, B3.3
+  * The ARMv7-M implementation must include a system timer, SysTick, that provides a 24-bit clear-on-write, decrementing, wrap-on-zero counter with a flexible control mechanism.
+  * Registers:
+    * Control and status: config, enable the counter, enable interrupt, counter status
+    * Counter reload: `SYST_RVR` wrap value for the counter (?). Reloading is called wrapping.
+    * Counter current value: `SYST_CVR` goes to zero, then to SYST_RVR, and decrements again
+    * Calibration value: the preload value for a 10ms (100Hz) system clock
+  * When the counter transitions to zero, `COUNTFLAG` status bit is set.
+  * Software can use the calibration value TENMS to scale the counter to other desired clock rates within the dynamic range of the counter. (???)
+* On blocking:*
+  * https://github.com/FastLED/FastLED/wiki/Interrupt-problems
+  * The signal for the WS2812B takes quite a long time. If you need to receive serial data but have interrupts disabled, then the serial buffer might overflow. What FastLED does for ARM mcus is to briefly re-enable interrupts between LEDs. As long as the interrupts take less than 5us (or whatever the reset time is for the LEDs) then it will be OK.
+
+### Timers
+* Three low-power TPM modules, all have basic TPM function, no quadrature decoder (?) and can be functional in Stop/VLPS mode (??).
+  * TPM0 has 6 channels, while TPM1/2 have 2 channels.
+* Teensy-LC Pin17 is `PTB1` (Datasheet pg.178) which is has TPM1_CH1 as the ALT3
+* Configure it with the System Intergration Module (Chap.12) registers:
+  * SIM_SOPT2
+    * TPMSRC: TPM Clock Source Select
+      * mk20dx128 already sets this register, and chooses: MCGFLLCLK clock, or MCGPLLCLK/2
+    * PLLFLLSEL ??
+  * SIM_SOPT4
+    * TPM[0-2]CLKSEL: External Clock Pin Select: select TPM_CLKIN[0-1]
+    * TPM[0-2]CH0SRC: Channel 0 Input Capture Source Select: select TPM1_CH0 signal, CMP0 output, USB start of frame pulse
+  * SIM_SCGC5:
+    * PORT[A-E] clock gate control
+      * it's already set to enable all ports
+  * SIM_SCGC6:
+    * TPM[0-2] clock gate control
+      * it's set to enable ADC0, TPM[0-2], FTF
+      * not enabled: DAC, RTC, PIT, I2S, DMAMUX
+  * SIM_SCGC7:
+    * DMA clock gate control
+  * DMA and DMAMUX are initialized in `DMAChannel.cpp`
+  * SIM_CLKDIV1 ???
+    * OUTDIV1  sets the divide for the core/system clock, and bus/flash clock
+    * OUTDIV4  sets the divide for the bus/flash clock, in addition to the system clock divide ratio
+* Pin Control Register n (PORTx_PCRn)
+  * ISF: Interrupt status flag: if the pin is configured to generate a DMA request, then the corresponding flag will be cleared when the DMA completes.
+  * IRQC: Interrupt configuration: can be DMA request on rising/falling/either edge 
+  * MUX: Select which ALTx the pin is connected to
+
+* Selecting the clock for TPM:
+  * (pg.135)
+  * SIM_SOPT2[PLLFLLSEL], SIM_SOPT2[TPMSRC]
+
+* https://shawnhymel.com/649/learning-the-teensy-lc-manual-pwm/
