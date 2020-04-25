@@ -310,3 +310,14 @@ Counting cycles? `ARM_DWT_CYCCNT`
 * aww. Doesn't look like Teensy LC (Cortex M0+) has CYCCNT.
 * It's used in AudioStream.cpp, but on the PJRC page, the TeensyLC is not supported.
 * https://forum.pjrc.com/threads/28407-Teensyduino-access-to-counting-cpu-cycles?p=71036&viewfull=1#post71036
+
+
+# OK i got bit-banging to work.
+* `asm volatile ("nop")`
+  
+### Storing LED animations?
+* WAIT! there is no EEPROM...
+* Teensy-LC has emulated EEPROM ??
+* https://electronics.stackexchange.com/questions/258851/flash-eeprom-emulation
+* I think the idea is:
+  * Flash memory is divided into blocks called "pages", and we can either clear a whole page, or write to a portion of it (can write only once, otherwise we have to clear it again). The idea is to divide the "page" to smaller pieces, each piece being able to store the EEPROM contents. Each piece can have a header to indicate if it contains the current EEPROM data, or contains old data, or is unwritten to. Need to clean up "pages" that are full (can't be written to anymore, so reset it).
