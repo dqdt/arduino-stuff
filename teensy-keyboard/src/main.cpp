@@ -233,17 +233,29 @@ void bitbang_leds()
 
 #define K_MENU 101
 
-#define S0PIN 2
-#define S1PIN 3
-#define S2PIN 4
-#define S3PIN 5
-#define COL16PIN 6
-#define ROW0PIN 7
-#define ROW1PIN 8
-#define ROW2PIN 9
-#define ROW3PIN 10
-#define ROW4PIN 11
-#define ROW5PIN 12
+// #define S0PIN 2
+// #define S1PIN 3
+// #define S2PIN 4
+// #define S3PIN 5
+// #define COL16PIN 6
+// #define ROW0PIN 7
+// #define ROW1PIN 8
+// #define ROW2PIN 9
+// #define ROW3PIN 10
+// #define ROW4PIN 11
+// #define ROW5PIN 12
+
+#define S0PIN 12
+#define S1PIN 11
+#define S2PIN 10
+#define S3PIN 9
+#define COL16PIN 8
+#define ROW0PIN 2
+#define ROW1PIN 3
+#define ROW2PIN 4
+#define ROW3PIN 5
+#define ROW4PIN 6
+#define ROW5PIN 7
 
 // don't use pin13 because there's an led there...
 #define CAPS_LOCK_LED 14   // bit 1
@@ -251,7 +263,8 @@ void bitbang_leds()
 
 #define DEBOUNCE_COUNT 7 // how many consecutive HIGH samples to determine a rising edge
 
-const int rowPins[] = {7, 8, 9, 10, 11, 12};
+// const int rowPins[] = {7, 8, 9, 10, 11, 12};
+const int rowPins[] = {2, 3, 4, 5, 6, 7};
 
 // PROGMEM?
 const int NROWS = 6;
@@ -428,7 +441,7 @@ int main()
 
     for (int i = 0; i < NROWS; i++)
     {
-        pinMode(rowPins[i], INPUT);
+        pinMode(rowPins[i], INPUT_PULLDOWN);
     }
 
     pinMode(CAPS_LOCK_LED, OUTPUT);
