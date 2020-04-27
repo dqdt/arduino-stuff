@@ -261,7 +261,9 @@ void bitbang_leds()
 #define CAPS_LOCK_LED 14   // bit 1
 #define SCROLL_LOCK_LED 15 // bit 2
 
-#define DEBOUNCE_COUNT 7 // how many consecutive HIGH samples to determine a rising edge
+#define TURN_ON_COLUMN_DELAY_US 24
+#define DEBOUNCE_COUNT 3 // 7 // how many consecutive HIGH samples to determine a rising edge
+
 
 // const int rowPins[] = {7, 8, 9, 10, 11, 12};
 const int rowPins[] = {2, 3, 4, 5, 6, 7};
@@ -363,6 +365,7 @@ void check_keys()
     for (int col = 0; col < NCOLS; col++)
     {
         set_column(col);
+        delayMicroseconds(TURN_ON_COLUMN_DELAY_US);
         for (int row = 0; row < NROWS; row++)
         {
             uint8_t key = key_map[row][col];
@@ -416,6 +419,7 @@ void check_modifiers()
         int col = modifiers_row_col[i][1];
 
         set_column(col);
+        delayMicroseconds(TURN_ON_COLUMN_DELAY_US);
         if (digitalRead(rowPins[row]))
         {
             mods |= mask;
@@ -442,6 +446,7 @@ int main()
     for (int i = 0; i < NROWS; i++)
     {
         pinMode(rowPins[i], INPUT_PULLDOWN);
+        // pinMode(rowPins[i], INPUT);
     }
 
     pinMode(CAPS_LOCK_LED, OUTPUT);
@@ -514,5 +519,6 @@ int main()
         }
         // Serial.println(micros() - start_time);
         // delay(100);
+        // delay(1);
     }
 }
