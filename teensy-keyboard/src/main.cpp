@@ -503,9 +503,9 @@ int main()
                 double g = cos(x + PI / 3.0 + t);
                 double b = cos(x + PI * 2.0 / 3.0 + t);
 
-                leds[3 * i + 0] = 100 * r * r;
-                leds[3 * i + 1] = 100 * g * g;
-                leds[3 * i + 2] = 100 * b * b;
+                leds[3 * i + 0] = 237 * r * r;
+                leds[3 * i + 1] = 237 * g * g;
+                leds[3 * i + 2] = 237 * b * b;
             }
             // for (int i = 0; i < 3 * NUM_LED; i++)
             // {

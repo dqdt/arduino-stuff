@@ -7,3 +7,10 @@ Datasheet for the Teensy-LC microcontroller MKL26Z64VFT4
 
 Teensy-LC schematic to see the wiring of the pins
 * https://www.pjrc.com/teensy/schematic.html
+
+I took notes in README_{GPIO, INTERRUPT, KEYBOARD, KEYBOARD_CODES}.
+
+Current issues:
+* How does Teensy know when the computer went to sleep?
+* How to get the Teensy keyboard to wake up the computer?
+  * https://forum.arduino.cc/index.php?topic=150157.0
