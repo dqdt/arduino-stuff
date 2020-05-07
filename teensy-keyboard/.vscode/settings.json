@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "usb_dev.h": "c",
+        "keylayouts.h": "c"
+    }
+}

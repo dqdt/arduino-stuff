@@ -264,7 +264,6 @@ void bitbang_leds()
 #define TURN_ON_COLUMN_DELAY_US 24
 #define DEBOUNCE_COUNT 3 // 7 // how many consecutive HIGH samples to determine a rising edge
 
-
 // const int rowPins[] = {7, 8, 9, 10, 11, 12};
 const int rowPins[] = {2, 3, 4, 5, 6, 7};
 
@@ -482,6 +481,19 @@ int main()
             // Serial.println();
             // Serial.print('|');
             Keyboard.send_now();
+            // Keyboard.set_media(KEY_SYSTEM_WAKE_UP);
+            // if (key_state[K_UP])
+            // {
+            //     Keyboard.press(KEY_MEDIA_VOLUME_INC);
+            //     Keyboard.release(KEY_MEDIA_VOLUME_INC);
+            //     // Keyboard.set_media(KEY_MEDIA_VOLUME_INC);
+            // }
+            // if (key_state[K_DOWN])
+            // {
+            //     Keyboard.press(KEY_MEDIA_VOLUME_DEC);
+            //     Keyboard.release(KEY_MEDIA_VOLUME_DEC);
+            //     // Keyboard.set_media(KEY_MEDIA_VOLUME_DEC);
+            // }
         }
 
         digitalWrite(CAPS_LOCK_LED, keyboard_leds & 0b10);
@@ -493,20 +505,40 @@ int main()
             // f(k*x + om*t)
 
             // Do LED update stuff
+            // for (int i = 0; i < NUM_LED; i++)
+            // {
+            //     double x = PI * i / NUM_LED; // space
+            //     double t = now / 1000000.0;  // time
+            //     // double t = now;
+
+            //     double r = cos(x + t);
+            //     double g = cos(x + PI / 3.0 + t);
+            //     double b = cos(x + PI * 2.0 / 3.0 + t);
+
+            //     leds[3 * i + 0] = 237 * r * r;
+            //     leds[3 * i + 1] = 237 * g * g;
+            //     leds[3 * i + 2] = 237 * b * b;
+            // }
+
+            uint8_t r = 0;
+            uint8_t g = 0;
+            uint8_t b = 0;
+            if (keyboard_leds & 0b10)
+            {
+                r = 237;
+            }
+            if (keyboard_leds & 0b100)
+            {
+                g = 237;
+                b = 237;
+            }
             for (int i = 0; i < NUM_LED; i++)
             {
-                double x = PI * i / NUM_LED; // space
-                double t = now / 1000000.0;  // time
-                // double t = now;
-
-                double r = cos(x + t);
-                double g = cos(x + PI / 3.0 + t);
-                double b = cos(x + PI * 2.0 / 3.0 + t);
-
-                leds[3 * i + 0] = 237 * r * r;
-                leds[3 * i + 1] = 237 * g * g;
-                leds[3 * i + 2] = 237 * b * b;
+                leds[3 * i + 0] = g;
+                leds[3 * i + 1] = r;
+                leds[3 * i + 2] = b;
             }
+
             // for (int i = 0; i < 3 * NUM_LED; i++)
             // {
             //     Serial.print(leds[i]);
