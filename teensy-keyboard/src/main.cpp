@@ -339,7 +339,8 @@ void PressedKeys::remove(uint8_t key)
             for (; j + 1 < cnt; j++)
             {
                 a[j] = a[j + 1];
-                j++;
+                // j++;  // wait why the hell am i incrementing twice?? 
+                // removing this fixes the key getting stuck in the down state.
             }
             cnt--;
             a[cnt] = 0;
