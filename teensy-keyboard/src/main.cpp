@@ -289,9 +289,6 @@ const uint8_t modifiers_row_col[8][2] = {
     {5, 11}, // Right GUI
 };
 
-uint8_t key_state[102] = {0};
-bool state_changed = false;
-
 void set_column(int col)
 {
     if (col < 16)
@@ -339,7 +336,7 @@ void PressedKeys::remove(uint8_t key)
             for (; j + 1 < cnt; j++)
             {
                 a[j] = a[j + 1];
-                // j++;  // wait why the hell am i incrementing twice?? 
+                // j++;  // wait why the hell am i incrementing twice??
                 // removing this fixes the key getting stuck in the down state.
             }
             cnt--;
@@ -358,9 +355,15 @@ void PressedKeys::append(uint8_t key)
     cnt++;
 }
 
+int which_kb[128] = {0};
+uint8_t modifiers[2] = {0};
+uint8_t six_keys[2][6] = {0};
+uint8_t key_state[2][128] = {0};
+bool state_changed[2] = {false};
+
 void check_keys()
 {
-    static PressedKeys keys;
+    static PressedKeys keys[2];
 
     for (int col = 0; col < NCOLS; col++)
     {
@@ -369,6 +372,7 @@ void check_keys()
         for (int row = 0; row < NROWS; row++)
         {
             uint8_t key = key_map[row][col];
+            int id = which_kb[key];
 
             // there is a key at this intersection (nonzero keycode),
             // use the state from digitalRead to decrement or reset the counter
@@ -377,24 +381,24 @@ void check_keys()
                 uint8_t state = digitalRead(rowPins[row]);
                 if (state)
                 {
-                    if (key_state[key] == 1) // will be decremented to 0
+                    if (key_state[id][key] == 1) // will be decremented to 0
                     {
-                        if (!keys.contains(key))
+                        if (!keys[id].contains(key))
                         {
-                            keys.append(key);
+                            keys[id].append(key);
                         }
-                        state_changed = true;
+                        state_changed[id] = true;
                     }
-                    if (key_state[key]) // decrement to zero, but don't underflow
+                    if (key_state[id][key]) // decrement to zero, but don't underflow
                     {
-                        key_state[key]--;
+                        key_state[id][key]--;
                     }
                 }
                 else
                 {
-                    state_changed |= key_state[key] == 0;
-                    key_state[key] = DEBOUNCE_COUNT;
-                    keys.remove(key);
+                    state_changed[id] |= key_state[id][key] == 0;
+                    key_state[id][key] = DEBOUNCE_COUNT;
+                    keys[id].remove(key);
                 }
             }
         }
@@ -406,32 +410,42 @@ void check_keys()
     //     Serial.print(' ');
     // }
 
-    memcpy(keyboard_keys, keys.a, 6); // copy the length-6 array into keyboard_keys
+    memcpy(six_keys[0], keys[0].a, 6); // copy the length-6 array into keyboard_keys
+    memcpy(six_keys[1], keys[1].a, 6); // copy the length-6 array into keyboard_keys
 }
 
 void check_modifiers()
 {
-    int mods = 0;
+    int mods[2] = {0};
     int mask = 1;
     for (int i = 0; i < 8; i++)
     {
         int row = modifiers_row_col[i][0];
         int col = modifiers_row_col[i][1];
 
+        uint8_t key = key_map[row][col];
+        int id = which_kb[key];
+
         set_column(col);
         delayMicroseconds(TURN_ON_COLUMN_DELAY_US);
         if (digitalRead(rowPins[row]))
         {
-            mods |= mask;
+            mods[id] |= mask;
         }
         mask <<= 1;
     }
-    state_changed |= mods != keyboard_modifier_keys;
-    Keyboard.set_modifier(mods);
+    state_changed[0] |= mods[0] != modifiers[0];
+    state_changed[1] |= mods[1] != modifiers[1];
+    modifiers[0] = mods[0];
+    modifiers[1] = mods[1];
 }
 
 int main()
 {
+    // Specify which keys are sent through second endpoint. Default is to the first keyboard.
+    which_kb[(uint8_t)KEY_A] = 1;
+    which_kb[(uint8_t)KEY_LEFT] = 1;
+
     Serial.begin(115200);
 
     pinMode(17, OUTPUT);
@@ -453,52 +467,62 @@ int main()
     pinMode(SCROLL_LOCK_LED, OUTPUT);
 
     // Initialize all keys to unpressed
-    memset(key_state, DEBOUNCE_COUNT, 102);
+    // memset(key_state, DEBOUNCE_COUNT, 102);
+    memset(key_state[0], DEBOUNCE_COUNT, 128);
+    memset(key_state[1], DEBOUNCE_COUNT, 128);
 
     while (1)
     {
         // uint32_t start_time = micros();
 
-        state_changed = false;
+        state_changed[0] = false;
+        state_changed[1] = false;
         check_modifiers();
         check_keys();
 
-        if (state_changed)
-        {
-            // for (int i = 0; i < 6; i++)
-            // {
-            //     Serial.print(keyboard_keys[i]);
-            //     Serial.print(' ');
-            // }
-            // for (int i = 0; i < 102; i++)
-            // {
-            //     Serial.print(key_state[i]);
-            // }
-            // Serial.print(' ');
-            // for (int i = 0; i < 8; i++)
-            // {
-            //     Serial.print((keyboard_modifier_keys >> i) & 1);
-            // }
-            // Serial.println();
-            // Serial.print('|');
-            Keyboard.send_now();
-            // Keyboard.set_media(KEY_SYSTEM_WAKE_UP);
-            // if (key_state[K_UP])
-            // {
-            //     Keyboard.press(KEY_MEDIA_VOLUME_INC);
-            //     Keyboard.release(KEY_MEDIA_VOLUME_INC);
-            //     // Keyboard.set_media(KEY_MEDIA_VOLUME_INC);
-            // }
-            // if (key_state[K_DOWN])
-            // {
-            //     Keyboard.press(KEY_MEDIA_VOLUME_DEC);
-            //     Keyboard.release(KEY_MEDIA_VOLUME_DEC);
-            //     // Keyboard.set_media(KEY_MEDIA_VOLUME_DEC);
-            // }
+        if (state_changed[0]) {
+            Keyboard.send_now1(0, modifiers[0], six_keys[0], key_state[0]);
+        }
+        if (state_changed[1]) {
+            Keyboard.send_now1(1, modifiers[1], six_keys[1], key_state[1]);
         }
 
-        digitalWrite(CAPS_LOCK_LED, keyboard_leds & 0b10);
-        digitalWrite(SCROLL_LOCK_LED, keyboard_leds & 0b100);
+        // if (state_changed)
+        // {
+        //     // for (int i = 0; i < 6; i++)
+        //     // {
+        //     //     Serial.print(keyboard_keys[i]);
+        //     //     Serial.print(' ');
+        //     // }
+        //     // for (int i = 0; i < 102; i++)
+        //     // {
+        //     //     Serial.print(key_state[i]);
+        //     // }
+        //     // Serial.print(' ');
+        //     // for (int i = 0; i < 8; i++)
+        //     // {
+        //     //     Serial.print((keyboard_modifier_keys >> i) & 1);
+        //     // }
+        //     // Serial.println();
+        //     // Serial.print('|');
+        //     Keyboard.send_now();
+        //     // Keyboard.set_media(KEY_SYSTEM_WAKE_UP);
+        //     // if (key_state[K_UP])
+        //     // {
+        //     //     Keyboard.press(KEY_MEDIA_VOLUME_INC);
+        //     //     Keyboard.release(KEY_MEDIA_VOLUME_INC);
+        //     //     // Keyboard.set_media(KEY_MEDIA_VOLUME_INC);
+        //     // }
+        //     // if (key_state[K_DOWN])
+        //     // {
+        //     //     Keyboard.press(KEY_MEDIA_VOLUME_DEC);
+        //     //     Keyboard.release(KEY_MEDIA_VOLUME_DEC);
+        //     //     // Keyboard.set_media(KEY_MEDIA_VOLUME_DEC);
+        //     // }
+        // }
+
+        // digitalWrite(CAPS_LOCK_LED, keyboard_leds & 0b10);
+        // digitalWrite(SCROLL_LOCK_LED, keyboard_leds & 0b100);
 
         uint32_t now = micros();
         if (now - led_time > led_interval)
@@ -547,7 +571,7 @@ int main()
             // }
             // Serial.println();
             bitbang_leds();
-
+            
             led_time = now;
         }
         // Serial.println(micros() - start_time);
