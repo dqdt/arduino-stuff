@@ -233,6 +233,24 @@ void bitbang_leds()
 
 #define K_MENU 101
 
+// It turns out I was not debouncing the modifier keys, but only the keys with keycodes (A,S,D,F, ..).
+// It would be nice to keep it in one loop:
+//   if the key at this row and col was pressed, get its 'id'
+//   set the debounce count (or decrement it) in some array
+//   but modifier keys do not have keycodes!!
+// Since all the other keycodes are less than 128, let's use this bit to indicate modifier keys.
+
+#define K_LEFT_CTRL (128 | 0)
+#define K_LEFT_SHIFT (128 | 1)
+#define K_LEFT_ALT (128 | 2)
+#define K_LEFT_GUI (128 | 3)
+#define K_RIGHT_CTRL (128 | 4)
+#define K_RIGHT_SHIFT (128 | 5)
+#define K_RIGHT_ALT (128 | 6)
+#define K_RIGHT_GUI (128 | 7)
+
+#define MOD_MASK 128
+
 // #define S0PIN 2
 // #define S1PIN 3
 // #define S2PIN 4
@@ -261,10 +279,11 @@ void bitbang_leds()
 #define CAPS_LOCK_LED 14   // bit 1
 #define SCROLL_LOCK_LED 15 // bit 2
 
-#define TURN_ON_COLUMN_DELAY_US 24
-#define DEBOUNCE_COUNT 3 // 7 // how many consecutive HIGH samples to determine a rising edge
+// how many consecutive HIGH samples to determine a rising edge
+// 17 columns, 17*turn_on_delay*count = response time?
+#define TURN_ON_COLUMN_DELAY_US 48 // 24
+#define DEBOUNCE_COUNT 5 // 7 
 
-// const int rowPins[] = {7, 8, 9, 10, 11, 12};
 const int rowPins[] = {2, 3, 4, 5, 6, 7};
 
 // PROGMEM?
@@ -275,19 +294,19 @@ const uint8_t key_map[NROWS][NCOLS] = {
     {K_TILDE, K_1, K_2, K_3, K_4, K_5, K_6, K_7, K_8, K_9, K_0, K_MINUS, K_PLUS, K_BACKSPACE, K_INSERT, K_HOME, K_PAGE_UP},
     {K_TAB, K_Q, K_W, K_E, K_R, K_T, K_Y, K_U, K_I, K_O, K_P, K_LEFT_BRACE, K_RIGHT_BRACE, K_BACKSLASH, K_DELETE, K_END, K_PAGE_DOWN},
     {K_CAPS_LOCK, K_A, K_S, K_D, K_F, K_G, K_H, K_J, K_K, K_L, K_SEMICOLON, K_QUOTE, 0, K_ENTER, 0, 0, 0},
-    {/*left shift*/ 0, 0, K_Z, K_X, K_C, K_V, K_B, K_N, K_M, K_COMMA, K_PERIOD, K_SLASH, 0, /*right shift*/ 0, 0, K_UP, 0},
-    {/*left ctrl*/ 0, /*left gui*/ 0, /*left alt*/ 0, 0, 0, 0, K_SPACE, 0, 0, 0, /*right alt*/ 0, /*right gui*/ 0, K_MENU, /*right ctrl*/ 0, K_LEFT, K_DOWN, K_RIGHT},
+    {K_LEFT_SHIFT, 0, K_Z, K_X, K_C, K_V, K_B, K_N, K_M, K_COMMA, K_PERIOD, K_SLASH, 0, K_RIGHT_SHIFT, 0, K_UP, 0},
+    {K_LEFT_CTRL, K_LEFT_GUI, K_LEFT_ALT, 0, 0, 0, K_SPACE, 0, 0, 0, K_RIGHT_ALT, K_RIGHT_GUI, K_MENU, K_RIGHT_CTRL, K_LEFT, K_DOWN, K_RIGHT},
 };
-const uint8_t modifiers_row_col[8][2] = {
-    {5, 0},  // Left Ctrl
-    {4, 0},  // Left Shift
-    {5, 2},  // Left Alt
-    {5, 1},  // Left GUI
-    {5, 13}, // Right Ctrl
-    {4, 13}, // Right Shift
-    {5, 10}, // Right Alt
-    {5, 11}, // Right GUI
-};
+// const uint8_t modifiers_row_col[8][2] = {
+//     {5, 0},  // Left Ctrl
+//     {4, 0},  // Left Shift
+//     {5, 2},  // Left Alt
+//     {5, 1},  // Left GUI
+//     {5, 13}, // Right Ctrl
+//     {4, 13}, // Right Shift
+//     {5, 10}, // Right Alt
+//     {5, 11}, // Right GUI
+// };
 
 void set_column(int col)
 {
@@ -329,15 +348,13 @@ bool PressedKeys::contains(uint8_t key)
 }
 void PressedKeys::remove(uint8_t key)
 {
-    for (int j = 0; j < 6; j++)
+    for (int j = 0; j < cnt; j++)
     {
         if (a[j] == key)
         {
             for (; j + 1 < cnt; j++)
             {
-                a[j] = a[j + 1];
-                // j++;  // wait why the hell am i incrementing twice??
-                // removing this fixes the key getting stuck in the down state.
+                a[j] = a[j + 1]; // shift the array contents forward by 1
             }
             cnt--;
             a[cnt] = 0;
@@ -355,10 +372,10 @@ void PressedKeys::append(uint8_t key)
     cnt++;
 }
 
-int which_kb[128] = {0};
+int which_kb[136] = {0};
 uint8_t modifiers[2] = {0};
 uint8_t six_keys[2][6] = {0};
-uint8_t key_state[2][128] = {0};
+uint8_t key_state[2][136] = {0};
 bool state_changed[2] = {false};
 
 void check_keys()
@@ -372,33 +389,46 @@ void check_keys()
         for (int row = 0; row < NROWS; row++)
         {
             uint8_t key = key_map[row][col];
-            int id = which_kb[key];
+            int kb = which_kb[key];
 
-            // there is a key at this intersection (nonzero keycode),
-            // use the state from digitalRead to decrement or reset the counter
+            // if there is a key at this intersection (looked up a nonzero keycode),
+            // use the state from digitalRead to reset or decrement the counter
             if (key)
             {
                 uint8_t state = digitalRead(rowPins[row]);
                 if (state)
                 {
-                    if (key_state[id][key] == 1) // will be decremented to 0
+                    if (key_state[kb][key] == 1) // debounce_count about to reach 0, so it's considered pressed
                     {
-                        if (!keys[id].contains(key))
+                        // Handle it differently if it's a modifier key or a regular key
+                        if (key & MOD_MASK)
                         {
-                            keys[id].append(key);
+                            modifiers[kb] |= 1 << (key & 7);
                         }
-                        state_changed[id] = true;
+                        else
+                        {
+                            keys[kb].append(key);
+                        }
+                        state_changed[kb] = true;
                     }
-                    if (key_state[id][key]) // decrement to zero, but don't underflow
+                    if (key_state[kb][key]) // decrement while pressed, but don't underflow
                     {
-                        key_state[id][key]--;
+                        key_state[kb][key]--;
                     }
                 }
                 else
                 {
-                    state_changed[id] |= key_state[id][key] == 0;
-                    key_state[id][key] = DEBOUNCE_COUNT;
-                    keys[id].remove(key);
+                    state_changed[kb] |= key_state[kb][key] == 0; // released key
+                    key_state[kb][key] = DEBOUNCE_COUNT;
+
+                    if (key & MOD_MASK)
+                    {
+                        modifiers[kb] &= ~(1 << (key & 7));
+                    }
+                    else
+                    {
+                        keys[kb].remove(key);
+                    }
                 }
             }
         }
@@ -410,43 +440,43 @@ void check_keys()
     //     Serial.print(' ');
     // }
 
-    memcpy(six_keys[0], keys[0].a, 6); // copy the length-6 array into keyboard_keys
-    memcpy(six_keys[1], keys[1].a, 6); // copy the length-6 array into keyboard_keys
+    memcpy(six_keys[0], keys[0].a, 6);
+    memcpy(six_keys[1], keys[1].a, 6);
 }
 
-void check_modifiers()
-{
-    int mods[2] = {0};
-    int mask = 1;
-    for (int i = 0; i < 8; i++)
-    {
-        int row = modifiers_row_col[i][0];
-        int col = modifiers_row_col[i][1];
+// void check_modifiers()
+// {
+//     uint8_t mods[2] = {0};
+//     int mask = 1;
+//     for (int i = 0; i < 8; i++)
+//     {
+//         int row = modifiers_row_col[i][0];
+//         int col = modifiers_row_col[i][1];
 
-        uint8_t key = key_map[row][col];
-        int id = which_kb[key];
+//         uint8_t key = key_map[row][col];
+//         int id = which_kb[key];
 
-        set_column(col);
-        delayMicroseconds(TURN_ON_COLUMN_DELAY_US);
-        if (digitalRead(rowPins[row]))
-        {
-            mods[id] |= mask;
-        }
-        mask <<= 1;
-    }
-    state_changed[0] |= mods[0] != modifiers[0];
-    state_changed[1] |= mods[1] != modifiers[1];
-    modifiers[0] = mods[0];
-    modifiers[1] = mods[1];
-}
+//         set_column(col);
+//         delayMicroseconds(TURN_ON_COLUMN_DELAY_US);
+//         if (digitalRead(rowPins[row]))
+//         {
+//             mods[id] |= mask;
+//         }
+//         mask <<= 1;
+//     }
+//     state_changed[0] |= mods[0] != modifiers[0];
+//     state_changed[1] |= mods[1] != modifiers[1];
+//     modifiers[0] = mods[0];
+//     modifiers[1] = mods[1];
+// }
 
 int main()
 {
     // Specify which keys are sent through second endpoint. Default is to the first keyboard.
-    which_kb[(uint8_t)KEY_A] = 1;
-    which_kb[(uint8_t)KEY_LEFT] = 1;
+    which_kb[(uint8_t)K_A] = 1;
+    which_kb[(uint8_t)K_LEFT] = 1;
 
-    Serial.begin(115200);
+    // Serial.begin(115200);
 
     pinMode(17, OUTPUT);
 
@@ -467,9 +497,8 @@ int main()
     pinMode(SCROLL_LOCK_LED, OUTPUT);
 
     // Initialize all keys to unpressed
-    // memset(key_state, DEBOUNCE_COUNT, 102);
-    memset(key_state[0], DEBOUNCE_COUNT, 128);
-    memset(key_state[1], DEBOUNCE_COUNT, 128);
+    memset(key_state[0], DEBOUNCE_COUNT, 136);
+    memset(key_state[1], DEBOUNCE_COUNT, 136);
 
     while (1)
     {
@@ -477,13 +506,14 @@ int main()
 
         state_changed[0] = false;
         state_changed[1] = false;
-        check_modifiers();
         check_keys();
 
-        if (state_changed[0]) {
+        if (state_changed[0])
+        {
             Keyboard.send_now1(0, modifiers[0], six_keys[0], key_state[0]);
         }
-        if (state_changed[1]) {
+        if (state_changed[1])
+        {
             Keyboard.send_now1(1, modifiers[1], six_keys[1], key_state[1]);
         }
 
@@ -571,7 +601,7 @@ int main()
             // }
             // Serial.println();
             bitbang_leds();
-            
+
             led_time = now;
         }
         // Serial.println(micros() - start_time);
