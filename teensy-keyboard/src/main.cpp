@@ -470,6 +470,17 @@ void check_keys()
 //     modifiers[1] = mods[1];
 // }
 
+
+bool suspended = false;
+
+// causes a delay...
+void wakeup() {
+    uint8_t tmp = USB0_CTL;
+    USB0_CTL |= USB_CTL_RESUME;
+    delay(11);
+    USB0_CTL = tmp;
+}
+
 int main()
 {
     // Specify which keys are sent through second endpoint. Default is to the first keyboard.
@@ -504,9 +515,32 @@ int main()
     {
         // uint32_t start_time = micros();
 
+        if (USB0_ISTAT & USB_ISTAT_SLEEP)
+        {
+            suspended = true;
+            USB0_ISTAT = USB_ISTAT_SLEEP;
+            continue;
+        }
+
+        if (USB0_ISTAT & USB_ISTAT_RESUME)
+        {
+            suspended = false;
+            USB0_ISTAT = USB_ISTAT_RESUME;
+            continue;
+        }
+
         state_changed[0] = false;
         state_changed[1] = false;
         check_keys();
+        
+        if (suspended)
+        {
+            if (state_changed[0] || state_changed[1])
+            {
+                wakeup();
+                continue;
+            }
+        }
 
         if (state_changed[0])
         {
@@ -517,40 +551,7 @@ int main()
             Keyboard.send_now1(1, modifiers[1], six_keys[1], key_state[1]);
         }
 
-        // if (state_changed)
-        // {
-        //     // for (int i = 0; i < 6; i++)
-        //     // {
-        //     //     Serial.print(keyboard_keys[i]);
-        //     //     Serial.print(' ');
-        //     // }
-        //     // for (int i = 0; i < 102; i++)
-        //     // {
-        //     //     Serial.print(key_state[i]);
-        //     // }
-        //     // Serial.print(' ');
-        //     // for (int i = 0; i < 8; i++)
-        //     // {
-        //     //     Serial.print((keyboard_modifier_keys >> i) & 1);
-        //     // }
-        //     // Serial.println();
-        //     // Serial.print('|');
-        //     Keyboard.send_now();
-        //     // Keyboard.set_media(KEY_SYSTEM_WAKE_UP);
-        //     // if (key_state[K_UP])
-        //     // {
-        //     //     Keyboard.press(KEY_MEDIA_VOLUME_INC);
-        //     //     Keyboard.release(KEY_MEDIA_VOLUME_INC);
-        //     //     // Keyboard.set_media(KEY_MEDIA_VOLUME_INC);
-        //     // }
-        //     // if (key_state[K_DOWN])
-        //     // {
-        //     //     Keyboard.press(KEY_MEDIA_VOLUME_DEC);
-        //     //     Keyboard.release(KEY_MEDIA_VOLUME_DEC);
-        //     //     // Keyboard.set_media(KEY_MEDIA_VOLUME_DEC);
-        //     // }
-        // }
-
+        
         // digitalWrite(CAPS_LOCK_LED, keyboard_leds & 0b10);
         // digitalWrite(SCROLL_LOCK_LED, keyboard_leds & 0b100);
 
