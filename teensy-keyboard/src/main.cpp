@@ -470,8 +470,9 @@ void check_keys()
 //     modifiers[1] = mods[1];
 // }
 
-
-bool suspended = false;
+// in usb_dev.c -> usb_dev.h -> usb_keyboard.h  so we can access them here
+// uint8_t suspended
+// uint8_t device_remote_wakeup_feature
 
 // causes a delay...
 void wakeup() {
@@ -479,6 +480,7 @@ void wakeup() {
     USB0_CTL |= USB_CTL_RESUME;
     delay(11);
     USB0_CTL = tmp;
+    delay(10);
 }
 
 int main()
@@ -501,7 +503,6 @@ int main()
     for (int i = 0; i < NROWS; i++)
     {
         pinMode(rowPins[i], INPUT_PULLDOWN);
-        // pinMode(rowPins[i], INPUT);
     }
 
     pinMode(CAPS_LOCK_LED, OUTPUT);
@@ -513,30 +514,16 @@ int main()
 
     while (1)
     {
-        // uint32_t start_time = micros();
-
-        if (USB0_ISTAT & USB_ISTAT_SLEEP)
-        {
-            suspended = true;
-            USB0_ISTAT = USB_ISTAT_SLEEP;
-            continue;
-        }
-
-        if (USB0_ISTAT & USB_ISTAT_RESUME)
-        {
-            suspended = false;
-            USB0_ISTAT = USB_ISTAT_RESUME;
-            continue;
-        }
-
         state_changed[0] = false;
         state_changed[1] = false;
         check_keys();
+
         
-        if (suspended)
+        if (suspended && device_remote_wakeup_feature)
         {
             if (state_changed[0] || state_changed[1])
             {
+                device_remote_wakeup_feature = 0;  // one shot at sending RESUME
                 wakeup();
                 continue;
             }
@@ -588,25 +575,19 @@ int main()
                 g = 237;
                 b = 237;
             }
+            if (suspended) {
+                r = g = b = 0;
+            }
             for (int i = 0; i < NUM_LED; i++)
             {
                 leds[3 * i + 0] = g;
                 leds[3 * i + 1] = r;
                 leds[3 * i + 2] = b;
             }
-
-            // for (int i = 0; i < 3 * NUM_LED; i++)
-            // {
-            //     Serial.print(leds[i]);
-            //     Serial.print(' ');
-            // }
-            // Serial.println();
+            
             bitbang_leds();
 
             led_time = now;
         }
-        // Serial.println(micros() - start_time);
-        // delay(100);
-        // delay(1);
     }
 }

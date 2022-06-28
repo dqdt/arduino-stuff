@@ -69,3 +69,143 @@ Fortunately, the USBx_ISTAT RESUME and SLEEP bits are still set, even when their
 
 So:
 	Remove the lines related to USB_INTEN_SLEEPEN and USB_ISTAT_SLEEP in usb_dev.c
+
+
+
+
+
+Actually,
+  the Teensy detects SLEEP when powered on, 
+    (? because the computer's USB HUB is not yet ready)
+    and there is no RESUME when the computer is booted (only when waking)
+
+Weird, if the Teensy tries to RESUME when the usb bus is normal (not sleeping)
+  then it gets put into a SLEEP state...
+
+  (sometimes the computer thinks the device is malfunctioning)
+  (if there are too many RESUME signals coming from the keyboard for a few seconds?)
+  (at this point, it stops showing up in Device Manager)
+
+SO:
+  The keyboard can detect when the bus is SLEEPing through interrupts.
+  If RESUME is detected, we know the computer isn't asleep anymore.
+
+  If sleeping, and a key is pressed, try to RESUME?
+  You only get one shot to RESUME?
+
+    My mouse seems to behave this way. If I put the computer to sleep and then
+      wiggle the mouse constantly, then wake the computer (with the keyboard, since
+      the mouse is not functional anymore), the mouse "stops working".
+      (Probably because the MOUSE was sending lots of RESUME signals?)
+
+  If the computer is waking from sleep, we get a RESUME
+  If the computer is booting, there is no RESUME
+    Could try to RESUME once, then, internally, leave the "sleep state"
+    
+  There must be some indicator?
+
+
+Found it!
+  https://forum.arduino.cc/t/leonardo-as-keyboard-does-not-wake-windows-7-from-sleep/146624/5
+
+  usb 2.0 spec
+  The host sends SET_FEATURE(DEVICE_REMOTE_WAKEUP) before suspending the port
+    Feature Selector: DEVICE_REMOTE_WAKEUP
+           Recipient: Device
+               Value: 1
+
+in usb_dev.c, in usb_setup(void),
+
+  union {
+   struct {
+    uint8_t bmRequestType;
+    uint8_t bRequest;
+   };
+    uint16_t wRequestAndType;
+  };
+
+  -> the upper 8 bits are bmRequest, and lower 8 bits are bmRequestType
+
+now change:
+
+  switch(setup.wRequestAndType)
+
+    case 0x0080: // GET_STATUS (device)
+    // reply_buffer[0] = 0;
+       reply_buffer[0] = 2;  // usb_20.pdf, page 255, GET_STATUS, bit 1 indicates the ability of the device to signal remote wakeup.
+
+
+    case 
+      bmRequestType = 0 (Device?)
+      bRequest = SET_FEATURE = 3
+
+      setup.wValue = DEVICE_REMOTE_WAKEUP = 1
+
+
+    // added
+    case 0x0300: // SET_FEATURE device
+        if (setup.wValue == 1) {
+      device_remote_wakeup_feature = 1;
+    } else {
+      endpoint0_stall();
+    }
+        break;
+    // end
+
+OK:
+  When the keyboard is plugged in,
+    Computer not turned on:  suspended
+    Computer is on:          not suspended
+
+  When the computer goes to sleep:
+    suspended, but also sends DEVICE_REMOTE_WAKEUP
+    use the remote_wakeup to put it in a "suspended" state
+
+  If the computer shuts down:
+    suspended, but ... also sends a DEVICE_REMOTE_WAKEUP.
+
+  Restart computer:
+    suspended because of the DEVICE_REMOTE_WAKEUP and no way to automatically
+      get it out of suspended state. hmm...
+
+There is a falling edge when sleep or turn off
+There is a rising edge when waking, but not when turned on
+
+
+
+changes in usb_dev.c:
+
+extern these variables in usb_dev.h, usb_keyboard.h so it can be used in main
+uint8_t suspended = 0;
+uint8_t device_remote_wakeup_feature = 0;
+
+enable USB_INTEN_SLEEPEN, USB_INTEN_RESUMEEN
+  // added
+  
+  suspended = 0;  // ?? any activity gets it out of SUSPEND
+
+  if ((status & USB_ISTAT_SLEEP)) {
+    
+    suspended = 1;
+    USB0_ISTAT = USB_ISTAT_SLEEP;
+  }
+
+  if ((status & USB_ISTAT_RESUME)) {
+    
+    suspended = 0;
+    device_remote_wakeup_feature = 0;  // don't accidentally send
+    USB0_ISTAT = USB_ISTAT_RESUME;
+  }
+  // end
+ 
+
+in main:
+if (suspended && device_remote_wakeup_feature)
+{
+    if (state_changed[0] || state_changed[1])
+    {
+        device_remote_wakeup_feature = 0;  // one shot at sending RESUME
+        wakeup();
+        continue;
+    }
+}
